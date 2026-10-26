@@ -7,6 +7,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest"]
+vision = ["opencv-contrib-python", "numpy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
