@@ -1,6 +1,6 @@
 # Progress
 
-**Milestone:** Prep (in progress) · **State:** On track · **Last updated:** 2026-10-26 22:15 UK
+**Milestone:** Prep (in progress) · **State:** On track · **Last updated:** 2026-10-26 22:30 UK
 
 Hackathon window: 26 Oct – 4 Nov 2026 (submit by 9pm ET Wed 4 Nov = 2am UK Thu 5 Nov). Features frozen 3 Nov.
 
@@ -32,7 +32,7 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 ## Blockers and decisions needed from Liam
 
 - **Python env:** `python3.14-venv` isn't installed, so no virtualenv, no pytest, no OpenCV/numpy. Needs `sudo apt install python3.14-venv`, or tell me to use another route (e.g. uv).
-- **GPU (diagnosed):** this is the Legion (Ubuntu 26.04.1, 30GB RAM), but the RTX 5070 does not appear on the PCI bus at all (`lspci` lists only the Intel iGPU), so it's not a driver problem. Most likely the BIOS graphics mode is Hybrid-iGPU-only/Integrated. Check the Legion BIOS graphics setting (Hybrid or Discrete), then install the NVIDIA driver (`ubuntu-drivers devices`). Blocks SAM 3.1 and cuRobo.
+- **GPU:** BIOS is already on Switchable Graphics, yet the RTX 5070 is still absent from `lspci` (Intel iGPU only), no NVIDIA driver, no `nvidia-smi`, `ubuntu-drivers devices` lists nothing. Secure Boot is **enabled**, so once the card appears the driver (`-open` variant) will need a MOK key enrolment or Secure Boot off. Next: try Discrete Graphics in BIOS and check BIOS More Settings for an iGPU-only toggle; then Lenovo Vantage/BIOS update. Blocks SAM 3.1 and cuRobo.
 - **SAM 3.1 weights:** gated on Hugging Face (`facebook/sam3.1`); Liam needs to accept Meta's terms and authenticate.
 - **GitHub:** no remote yet. Repo must be public; need the repo name/URL to push.
 - **Credits:** confirm the Meta API credit amount on the event details page (transcript was garbled: ~$150 stated).
