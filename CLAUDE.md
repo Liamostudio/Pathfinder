@@ -8,7 +8,7 @@ Live plan docs (source of truth):
 
 ## Hackathon rules that affect the code
 
-- **New work only.** Everything presented must be built during the event (building period 27 Oct – 4 Nov 2026). Keep the README split into "Built during the hackathon" and "Open source we build on" (cuRobo, LeRobot, SO-101 URDF, SAM).
+- **New work only.** Everything presented must be built during the event (building period 26 Oct – 4 Nov 2026; confirmed on the kickoff call). Keep the README split into "Built during the hackathon" and "Open source we build on" (cuRobo, LeRobot, SO-101 URDF, SAM).
 - **Repo must be public.** Never commit secrets: API keys live in `.env`, which is git-ignored.
 - **Deadline:** 9pm EST Wed 4 Nov = **2am UK Thu 5 Nov**. Target submitting Wed evening. Features frozen 3 Nov.
 - Submission needs a 3-minute demo video, the public repo and a live product (plan: hosted replay build of mission control).
@@ -65,6 +65,10 @@ Hero demo is **pick-and-place** for now. Filming/B-roll (arm holding an action c
 Cameras + calibration → safe zones with sim arm → language to target → real arm swap-in (from ~31 Oct) → hand slowdown + polish → video + submit.
 Cut lines, in order: multi-step tasks, obstacle rerouting, target confirmation, second camera. Never cut: hand safety, one camera, one clean pick.
 Stub every adapter with fake data first; develop against recorded camera footage; swap in real models one at a time.
+
+## Progress tracking
+
+`PROGRESS.md` at the repo root is the shared tracker for Liam and any Claude session, and evidence for judges of what was built 26 Oct – 4 Nov 2026. Update it at the end of every working session and before every push, in the same commit as the work. Tick a milestone only when its acceptance test has passed and say how it was tested; be honest about half-working things. Keep it under ~200 lines (summarise older log entries to one line per day).
 
 ## Working style
 
