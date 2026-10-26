@@ -1,0 +1,15 @@
+[project]
+name = "lookandpick"
+version = "0.1.0"
+description = "A table-mounted SO-101 arm that works safely around people."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools]
+packages = ["lookandpick", "lookandpick.adapters"]
