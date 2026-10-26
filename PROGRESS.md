@@ -1,6 +1,6 @@
 # Progress
 
-**Milestone:** Prep (in progress) · **State:** On track · **Last updated:** 2026-10-26 22:00 UK
+**Milestone:** Prep (in progress) · **State:** On track · **Last updated:** 2026-10-26 22:15 UK
 
 Hackathon window: 26 Oct – 4 Nov 2026 (submit by 9pm ET Wed 4 Nov = 2am UK Thu 5 Nov). Features frozen 3 Nov.
 
@@ -32,15 +32,17 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 ## Blockers and decisions needed from Liam
 
 - **Python env:** `python3.14-venv` isn't installed, so no virtualenv, no pytest, no OpenCV/numpy. Needs `sudo apt install python3.14-venv`, or tell me to use another route (e.g. uv).
-- **GPU:** `nvidia-smi` isn't found on this machine. Is this the Legion? If so the NVIDIA driver needs checking before SAM 3.1 or cuRobo.
+- **GPU (diagnosed):** this is the Legion (Ubuntu 26.04.1, 30GB RAM), but the RTX 5070 does not appear on the PCI bus at all (`lspci` lists only the Intel iGPU), so it's not a driver problem. Most likely the BIOS graphics mode is Hybrid-iGPU-only/Integrated. Check the Legion BIOS graphics setting (Hybrid or Discrete), then install the NVIDIA driver (`ubuntu-drivers devices`). Blocks SAM 3.1 and cuRobo.
 - **SAM 3.1 weights:** gated on Hugging Face (`facebook/sam3.1`); Liam needs to accept Meta's terms and authenticate.
 - **GitHub:** no remote yet. Repo must be public; need the repo name/URL to push.
 - **Credits:** confirm the Meta API credit amount on the event details page (transcript was garbled: ~$150 stated).
 - **Unconfirmed:** Muse Voice Transcribe is reportedly streaming-only; Glimmer weights, size and MacBook serving route unchecked.
-- **Cameras:** `/dev/video0` and `/dev/video1` exist but may be one camera plus a metadata node.
+- **Cameras:** only the laptop's built-in camera is present (`/dev/video0`; `video1` is its metadata node). The two external webcams aren't plugged in or mounted yet.
+- **No sudo for me:** needs a password, so system installs (`python3.14-venv`, NVIDIA driver) must be run by Liam.
 
 ## Log
 
+- **2026-10-26 (22:15, UK):** Diagnosed blockers (no code change): dGPU missing from PCI bus; only the built-in webcam present; no passwordless sudo.
 - **2026-10-26 (evening, UK):**
   - Read kickoff transcript: building opens 26 Oct, not 27 Oct as the earlier notes said.
   - Scaffolded repo: `README.md`, `pyproject.toml`, `.gitignore`, `.env.example`, `lookandpick/{world,safety,tools,demo}.py`, `lookandpick/adapters/{base,fake}.py`.
