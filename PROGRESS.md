@@ -47,6 +47,11 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 - Measured: peak VRAM ~4.2–4.5 GB, ~2.8 fps steady (first frame ~5 s), no compile, no FA3. Detection checked by eye on one frame (bed, `bedroom.mp4`); not scored for accuracy, and hands and people untested.
 - Correction: an earlier "0 objects found" came from my script reading the wrong output key (masks sit under `outputs`), not from the model.
 
+## LeRobot setup notes (2026-10-27)
+
+- Installed `lerobot` 0.6.1 `--no-deps` into scratch venv `~/src/lerobot-venv` (outside the repo) with `feetech-servo-sdk`, `pyserial`, `deepdiff`, `draccus`, CPU `torch`, numpy 2.5. Its pins (Python 3.12+, `numpy<2.3`, `torch<2.12`) are ignored, as with SAM. Tested: `SO101Follower`, `SO101FollowerConfig` and `FeetechMotorsBus` import; the `lerobot-*` CLIs (`find-port`, `setup-motors`, `calibrate`, `teleoperate`) are installed but **not run: no URT board or servos connected yet**.
+- **Needs Liam (sudo):** `sudo usermod -aG dialout $USER`, then log out and back in, or the serial port will be permission denied. No `/dev/ttyUSB*` exists until the URT board is plugged in.
+
 ## Log
 
 - **2026-10-27 (UK):**
