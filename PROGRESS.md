@@ -1,6 +1,6 @@
 # Progress
 
-**Milestone:** Prep (in progress) · **State:** On track · **Last updated:** 2026-10-27 UK
+**Milestone:** Prep (in progress) · **State:** On track · **Last updated:** 2026-10-27 UK · **Repo:** https://github.com/Liamostudio/Pathfinder (public)
 
 Hackathon window: 26 Oct – 4 Nov 2026 (submit by 9pm ET Wed 4 Nov = 2am UK Thu 5 Nov). Features frozen 3 Nov.
 
@@ -31,13 +31,12 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 
 ## Blockers and decisions needed from Liam
 
-- **GitHub:** no remote yet. Repo must be public; need the repo name/URL to push.
 - **Credits:** confirm the Meta API credit amount on the event details page (transcript was garbled: ~$150 stated).
 - **Cameras:** only the laptop's built-in camera is present (`/dev/video0`; `video1` is its metadata node). The two external webcams aren't plugged in or mounted yet.
 - **Unconfirmed:** Muse Voice Transcribe is reportedly streaming-only; Glimmer weights, size and MacBook serving route unchecked.
-- **Stray file:** a screenshot of the SAM preview window sits untracked in the repo root; it likely shows Liam's face, so don't commit it (move, delete or git-ignore).
+- **Stray file:** a screenshot of the SAM preview window sits in the repo root. It is now git-ignored (`*_screenshot_*.png`), but it likely shows Liam's face, so delete or move it.
 - **No sudo for me:** needs a password, so system installs must be run by Liam.
-- Resolved 2026-10-27: Python env (`python3.14-venv`), NVIDIA driver, Hugging Face access to `facebook/sam3.1`.
+- Resolved 2026-10-27: Python env (`python3.14-venv`), NVIDIA driver, Hugging Face access to `facebook/sam3.1`, GitHub (`gh` login, public repo `Pathfinder`, pushed).
 
 ## SAM 3.1 setup notes (2026-10-27)
 
@@ -51,6 +50,8 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 ## Log
 
 - **2026-10-27 (UK):**
+  - GitHub set up by Liam (`gh auth login`); I created the public repo `Liamostudio/Pathfinder` and pushed `main` (9 commits, commit email `liam@liam-o.com` left public by Liam's choice). Checked no secrets, weights or recordings are tracked. Tested: `git ls-remote`/`gh repo view` show the repo public with `main`.
+  - Codex is auditing and fixing bugs in parallel; its changes (e.g. `tests/test_regressions.py`) are not recorded here yet. README now lists SAM 3.1 under open source and the new scripts under built work.
   - NVIDIA driver `nvidia-driver-595-open` installed by Liam; DKMS modules signed; MOK key enrolled at boot. Tested: `nvidia-smi` shows the RTX 5070 (8151 MiB, CUDA 13.2), 4 nvidia modules loaded, `mokutil --test-key` enrolled.
   - Created `.venv` with `pip install -e ".[dev,vision]"` plus `torch` (cu130). Tested: pytest 5/5; `torch.cuda.is_available()` True (sm_120), matmul on GPU ran. `torch` not yet in `pyproject.toml`.
   - Hugging Face access granted by Liam; SAM 3.1 checkpoint downloaded after Liam approved the 3.5 GB size.
