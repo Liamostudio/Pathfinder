@@ -26,13 +26,13 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 ## Working on now
 
 - Machine and model setup is done: driver, Python env, SAM 3.1 loading and tracking on the 5070.
-- Next: mission control skeleton with the model-call timeline; print the marker (`markers/aruco_id0_120mm.pdf`, 100% scale) and run `scripts/check_calibration.py`; choose a lightweight hand detector for the fast loop.
+- Next: mission control skeleton with the model-call timeline; print the marker and checkerboard (`markers/`, 100% scale), run `scripts/calibrate_lens.py --cam 2 --name ace-pro`, then `scripts/check_calibration.py --intrinsics calibration/ace-pro.json`; choose a lightweight hand detector for the fast loop.
 - Open question: try `torch.compile` on SAM 3.1 (Meta claims ~2x), and test it on hands and people, not just the bed clip.
 
 ## Blockers and decisions needed from Liam
 
 - **Credits:** confirm the Meta API credit amount on the event details page (transcript was garbled: ~$150 stated).
-- **Cameras:** only the laptop's built-in camera is present (`/dev/video0`; `video1` is its metadata node). The two external webcams aren't plugged in or mounted yet.
+- **Cameras:** built-in camera is `/dev/video0` (`video1` is metadata). An Insta360 Ace Pro (USB webcam mode) is now on `/dev/video2` (`video3`–`5` are other nodes): captures 1920x1080, 1280x720 and 640x360 at 30 fps, tested with one frame each. It is a very wide, strongly distorted lens, so it needs a checkerboard lens calibration before the marker check means anything (the 70° default is wrong). Lens calibration code is written (`scripts/calibrate_lens.py`, `lookandpick/intrinsics.py`, board PDF `markers/checkerboard_6x9_20mm.pdf`). Not yet mounted; the second external webcam is not plugged in.
 - **Unconfirmed:** Muse Voice Transcribe is reportedly streaming-only; Glimmer weights, size and MacBook serving route unchecked.
 - **Stray file:** a screenshot of the SAM preview window sits in the repo root. It is now git-ignored (`*_screenshot_*.png`), but it likely shows Liam's face, so delete or move it.
 - **No sudo for me:** needs a password, so system installs must be run by Liam.
@@ -77,6 +77,7 @@ Written during the event unless marked otherwise.
 | ArUco calibration (`calibration.py`, `tests/test_calibration.py`) | 2026-10-27 | Synthetic images and invalid-input tests only; no physical acceptance |
 | Marker generator + calibration check (`scripts/make_marker.py`, `check_calibration.py`, `tests/test_make_marker.py`) | 2026-10-27 | Synthetic and PDF round-trip only; no real camera |
 | Deck mission control (`mission_control.py`, `web/`, `tests/test_mission_control.py`) | 2026-10-27 | 14 new tests; local browser checks; synthetic state only |
+| Lens calibration (`intrinsics.py`, `scripts/calibrate_lens.py`, `tests/test_intrinsics.py`) | 2026-10-27 | Recovers a known distorted camera from synthetic corner views (4 tests); live capture loop never run on a real board |
 | Model access notes (`docs/model-access.md`) | 2026-10-26, `de4dcc1` | Secondary sources |
 | SAM 3.1 smoke test + webcam preview (`scripts/sam3_smoke.py`, `sam3_live.py`) | 2026-10-27, `3bdd0a1` | Run from scratch venv; wraps Meta's code with memory workarounds |
 

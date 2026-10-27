@@ -7,8 +7,8 @@ Shows the marker pose axes, the reprojection error and a 10 cm grid on the table
 to read off its table position in cm (origin = marker centre, x right, y up the page, z up); hold
 a ruler on the table to see whether the readout is within 1 cm. Press s to save a frame, q to quit.
 
-Lens intrinsics are not calibrated yet: they are estimated from --hfov (degrees), so expect errors
-above the synthetic 1-5 mm until a checkerboard calibration is added. Needs the `vision` extra.
+Pass --intrinsics calibration/<camera>.json (from calibrate_lens.py). Without it the lens is guessed
+from --hfov and distortion is ignored, so expect errors well above the synthetic 1-5 mm. Needs the `vision` extra.
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from pathlib import Path
 import numpy as np
 
 from lookandpick.calibration import TableCalibration, detect_marker
+from lookandpick.intrinsics import Intrinsics
 
 
 def guess_intrinsics(width: int, height: int, hfov_deg: float) -> np.ndarray:
@@ -54,7 +55,10 @@ def main() -> None:
     src.add_argument("--image", type=Path)
     p.add_argument("--marker-mm", type=float, required=True, help="measured side of the black square")
     p.add_argument("--marker-id", type=int, default=0)
-    p.add_argument("--hfov", type=float, default=70.0, help="assumed horizontal field of view, degrees")
+    p.add_argument("--intrinsics", type=Path, help="calibration/<name>.json from calibrate_lens.py (recommended)")
+    p.add_argument("--width", type=int, default=1280)
+    p.add_argument("--height", type=int, default=720)
+    p.add_argument("--hfov", type=float, default=70.0, help="assumed horizontal field of view if no --intrinsics")
     p.add_argument("--no-window", action="store_true", help="annotate one frame and save it")
     p.add_argument("--out", type=Path, default=Path("calibration_check.png"))
     a = p.parse_args()
@@ -67,11 +71,12 @@ def main() -> None:
             raise SystemExit(f"Cannot read {a.image}")
     else:
         cap = cv2.VideoCapture(a.cam)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, a.width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, a.height)
         if not cap.isOpened():
             raise SystemExit(f"Cannot open camera {a.cam}")
 
+    lens = Intrinsics.load(a.intrinsics) if a.intrinsics else None
     state = {"cal": None, "text": "click a point on the table"}
 
     def on_mouse(event, x, y, *_):
@@ -85,8 +90,10 @@ def main() -> None:
     def process(frame):
         h, w = frame.shape[:2]
         corners = detect_marker(frame, a.marker_id)
-        state["cal"] = (TableCalibration.from_marker(corners, a.marker_mm / 1000, guess_intrinsics(w, h, a.hfov))
-                        if corners is not None else None)
+        if lens is not None and lens.size != (w, h):
+            raise SystemExit(f"{a.intrinsics} was calibrated at {lens.size[0]}x{lens.size[1]}, but frames are {w}x{h}")
+        k, dist = (lens.camera_matrix, lens.dist) if lens is not None else (guess_intrinsics(w, h, a.hfov), None)
+        state["cal"] = TableCalibration.from_marker(corners, a.marker_mm / 1000, k, dist) if corners is not None else None
         return annotate(frame, state["cal"], corners, state["text"])
 
     try:
