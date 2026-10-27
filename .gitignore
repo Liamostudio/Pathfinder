@@ -6,3 +6,4 @@ __pycache__/
 recordings/
 weights/
 *.egg-info/
+*_screenshot_*.png
