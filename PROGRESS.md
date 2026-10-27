@@ -11,7 +11,7 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 - [ ] **Prep:** webcams mounted, gauge part fits a servo, follower parts printing, cuRobo docs read
   - Status: laptop GPU, driver, Python env and SAM 3.1 are ready (see log). Physical items not started; cuRobo docs not read yet.
 - [ ] **Cameras + calibration:** both cameras report the ArUco marker in the same place to within 1cm; a tapped pixel lands on the right table spot
-  - Status: calibration code written and tested on synthetic views only (`lookandpick/calibration.py`, 7 tests pass): marker pose, pixel to table position, optional object height. Synthetic error 1–5 mm against the 1 cm target; two cameras 90° apart agree within 3 mm. **Not tested on real cameras or a printed marker**, no lens calibration, no multi-camera fusion, no hand-tap UI. The `adapters/camera.py` and `record.py` code was not run by me (Codex is changing it). Only one camera present.
+  - Status: calibration code written and tested on synthetic views only (`lookandpick/calibration.py`, 7 tests pass): marker pose, pixel to table position, optional object height. Synthetic error 1–5 mm against the 1 cm target; two cameras 90° apart agree within 3 mm. **Not tested on real cameras or a printed marker**, no lens calibration, no multi-camera fusion, no hand-tap UI. The `adapters/camera.py` and `record.py` code was not run by me (Codex is changing it). Only one camera present. Print-ready marker (`scripts/make_marker.py` -> `markers/aruco_id0_120mm.pdf`, A4 vector, rasterised back and measured at 119.7 mm of 120) and a real-camera check (`scripts/check_calibration.py`: pose, 10 cm grid, click-to-read table cm) written; the check recovers the camera position exactly on a synthetic render but has **not been run on a real camera or a printed marker**. Intrinsics are assumed from a guessed field of view until a lens calibration exists.
 - [ ] **Safe zones, sim arm:** cuRobo runs on the Legion; a hand crossing the sim arm's path pauses it within a frame; sim arm plans around a mug; visualiser shows both
   - Status: speed-and-separation logic and stop latch exist with unit tests (5/5 pass under pytest), against a fake arm only. No cuRobo, no visualiser, no real hand detection.
 - [ ] **Language to target:** "pick up the apple" highlights the right apple and gives a 3D goal; "the left one" picks correctly between two; new objects labelled within a couple of seconds
@@ -26,7 +26,7 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 ## Working on now
 
 - Machine and model setup is done: driver, Python env, SAM 3.1 loading and tracking on the 5070.
-- Next: mission control skeleton with the model-call timeline; run calibration on a real printed marker; choose a lightweight hand detector for the fast loop.
+- Next: mission control skeleton with the model-call timeline; print the marker (`markers/aruco_id0_120mm.pdf`, 100% scale) and run `scripts/check_calibration.py`; choose a lightweight hand detector for the fast loop.
 - Open question: try `torch.compile` on SAM 3.1 (Meta claims ~2x), and test it on hands and people, not just the bed clip.
 
 ## Blockers and decisions needed from Liam
@@ -74,6 +74,7 @@ Written during the event unless marked otherwise.
 | Sim demo (`demo.py`), tests (`tests/test_safety.py`) | 2026-10-26, `7a1353e` | 5/5 pass under pytest |
 | Camera sources + recorder (`adapters/camera.py`, `record.py`) | 2026-10-26, `de4dcc1` | Untested |
 | ArUco calibration (`calibration.py`, `tests/test_calibration.py`) | 2026-10-27 | Synthetic images only |
+| Marker generator + calibration check (`scripts/make_marker.py`, `check_calibration.py`, `tests/test_make_marker.py`) | 2026-10-27 | Synthetic and PDF round-trip only; no real camera |
 | Model access notes (`docs/model-access.md`) | 2026-10-26, `de4dcc1` | Secondary sources |
 | SAM 3.1 smoke test + webcam preview (`scripts/sam3_smoke.py`, `sam3_live.py`) | 2026-10-27, `3bdd0a1` | Run from scratch venv; wraps Meta's code with memory workarounds |
 
