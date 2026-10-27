@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#D6D6D3">
+  <title>Pathfinder — mission control</title>
+  <link rel="icon" href="/assets/mark.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/deck.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">skip to workspace</a>
+  <div class="shell">
+    <header class="masthead">
+      <a class="wordmark" href="/" aria-label="Pathfinder home"><img src="/assets/mark.svg" alt="">pathfinder</a>
+      <span class="project-label">look → understand → act</span>
+      <div class="header-right"><span class="connection"><i id="connection-led" class="led"></i><span id="connection-label">connecting</span></span><button id="theme" class="key icon-key" aria-label="Switch to dark theme" title="Switch theme">◐</button></div>
+    </header>
+
+    <div class="heading-row">
+      <div><p class="eyebrow">SO-101 / local workbench</p><h1>mission <span>control.</span></h1></div>
+      <div class="session-stamp"><span class="mode-label"><i class="square"></i> simulation session</span><span class="mono" id="session-time">00:00</span></div>
+    </div>
+
+    <div class="toolbar">
+      <nav class="transport navigation" aria-label="Main views">
+        <button class="nav-key active" data-page="workspace" aria-current="page">workspace</button>
+        <button class="nav-key" data-page="calibration">calibration <span class="tiny-dot"></span></button>
+        <button class="nav-key" data-page="timeline">session log</button>
+      </nav>
+      <div class="toolbar-actions"><button id="run-demo" class="key"><span aria-hidden="true">▶</span> play demo</button><button id="stop" class="stop-key"><span class="stop-square"></span>stop <kbd>space</kbd></button></div>
+    </div>
+
+    <main>
+      <section id="workspace" class="page active" aria-label="Workspace">
+        <div class="workspace-grid">
+          <div class="stage-column">
+            <div class="section-heading"><h2><span class="section-no">01</span> the workspace</h2><span class="caption">see what the arm sees</span></div>
+            <div class="stage-panel">
+              <div class="stage-header"><span id="stage-label"><i class="led"></i> synthetic scene</span><div class="view-switch" role="group" aria-label="Scene viewpoint"><button class="active" data-view="perspective" aria-pressed="true">perspective</button><button data-view="top" aria-pressed="false">top view</button></div><span class="mono">cam / 01</span></div>
+              <div class="stage-media">
+                <svg id="scene-svg" viewBox="0 0 960 560" role="img" aria-label="Illustrative simulated robot workspace with a cube, mug and drop zone"></svg>
+                <video id="camera-video" autoplay playsinline muted hidden></video>
+                <video id="recording-video" playsinline controls hidden></video>
+                <div class="stage-corner"><span id="media-mode">SIMULATED WORKSPACE</span><span id="stage-subtitle">illustrative motion · no camera input</span></div>
+                <div class="stage-coordinate mono" id="stage-coordinate">x +0.000 / y +0.000 / z +0.200</div>
+                <div id="stop-overlay" hidden><span>■</span><h3>stop latched.</h3><p>Start a new simulation to reset.</p></div>
+              </div>
+              <div class="stage-footer"><span><i class="legend-target"></i> selected target <i class="legend-path"></i> simulated path</span><button id="camera" class="stage-action">use webcam ↗</button><label class="stage-action file-label" for="recording">open recording ↗<input id="recording" type="file" accept="video/*"></label><button id="synthetic" class="stage-action" hidden>return to scene ↗</button></div>
+            </div>
+            <p class="stage-note" id="preview-note">A schematic of the shared world state. Webcam and recording previews are optional; neither runs detection.</p>
+
+            <div class="section-heading object-heading"><h2><span class="section-no">02</span> scene objects <span class="count">02</span></h2><span class="caption">select a target</span></div>
+            <div id="objects" class="objects"></div>
+            <div class="command-tray"><div class="command-label"><span class="caption">demo command</span><span class="micro">fixed phrases · no language model</span></div><form id="command-form"><label class="sr-only" for="command">Demo command</label><input id="command" placeholder="pick up the red cube" autocomplete="off" maxlength="200"><button class="command-send" aria-label="Run demo command">↵</button></form></div>
+          </div>
+
+          <aside class="console-column" aria-label="Robot controls">
+            <div class="section-heading"><h2><span class="section-no">03</span> safety gate</h2><span id="gate-status" class="status-label">clear</span></div>
+            <section class="safety-panel">
+              <div class="readout-label"><span>allowed speed</span><span class="mono micro">local / simulated</span></div>
+              <div class="speed-readout"><span id="speed" class="mono">100</span><span>%</span><span id="speed-caption" class="speed-caption">path clear</span></div>
+              <div class="speed-track"><div id="speed-fill"></div><i class="speed-stop-mark"></i></div>
+              <div class="range-labels mono"><span>stop</span><span>slow</span><span>full</span></div>
+              <div class="safety-details"><div><span class="caption">hand → selected path</span><strong id="separation" class="mono">clear</strong></div><div><span class="caption">stop threshold</span><strong class="mono">0.15 <small>m</small></strong></div></div>
+              <div class="scenario-label"><span>synthetic hand</span><span class="micro">test the gate</span></div>
+              <div class="transport scenarios" role="group" aria-label="Synthetic hand scenario"><button class="active" data-hand="clear" aria-pressed="true">clear</button><button data-hand="approach" aria-pressed="false">approaching</button><button data-hand="near" aria-pressed="false">in path</button></div>
+              <p class="micro safety-disclaimer">Checks run before each simulated action. Continuous hand monitoring is not connected.</p>
+            </section>
+
+            <section class="action-panel"><div class="action-copy"><p class="eyebrow">next action</p><h2 id="action-title">pick <span>red cube.</span></h2><span id="action-detail" class="caption">hover → descend → grip → lift</span></div><button id="pick" class="disc" aria-label="Pick selected object"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M8 24 24 8M8 8h16v16"/></svg></button><div class="action-bottom"><button id="place" class="key">place in drop zone <span>↗</span></button><span id="gripper" class="mono micro">gripper / open</span></div></section>
+
+            <section class="integrations"><div class="section-heading"><h2><span class="section-no">04</span> model rack</h2><span class="caption">integration status</span></div><div class="rack-row"><i class="led dormant"></i><div><strong>SAM 3.1</strong><span>standalone clip tracker</span></div><span class="rack-tag">not wired</span></div><div class="rack-row"><i class="led dormant"></i><div><strong>Muse Spark</strong><span>instruction → tool call</span></div><span class="rack-tag">not wired</span></div><div class="rack-row"><i class="led dormant"></i><div><strong>Voice Transcribe</strong><span>spoken commands</span></div><span class="rack-tag">not wired</span></div></section>
+          </aside>
+        </div>
+      </section>
+
+      <section id="calibration" class="page" aria-label="Calibration" hidden>
+        <div class="calibration-heading"><p class="eyebrow">align the world</p><h2>one table.<br><span>one coordinate frame.</span></h2><p>ArUco calibration is implemented and tested on synthetic views. A physical calibration has not been captured for this session.</p></div>
+        <div class="calibration-grid"><div class="calibration-diagram"><svg viewBox="0 0 640 360" role="img" aria-label="Two cameras observe a table marker"><path d="M160 300 320 205 510 300 350 350Z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M130 90 320 275 540 100M130 90 350 320 540 100" fill="none" stroke="currentColor" stroke-opacity=".25" stroke-dasharray="5 5"/><rect x="95" y="60" width="70" height="45" rx="12" fill="currentColor"/><circle cx="130" cy="83" r="12" fill="var(--base)"/><rect x="505" y="70" width="70" height="45" rx="12" fill="currentColor"/><circle cx="540" cy="93" r="12" fill="var(--base)"/><path d="m303 276 25-15 29 17-25 15Z" fill="currentColor"/><text x="82" y="140">camera 01</text><text x="490" y="150">camera 02</text><text x="210" y="250">ArUco / arm-base offset required</text></svg></div><div class="calibration-checklist"><h3>bench checklist</h3><div><span>01</span><p>Measure camera intrinsics<small>Lens distortion and focal lengths for each camera.</small></p><span class="rack-tag">pending</span></div><div><span>02</span><p>Mount and measure the marker<small>Physical size and marker-to-arm transform.</small></p><span class="rack-tag">pending</span></div><div><span>03</span><p>Validate across the table<small>Independent table points within 1 cm.</small></p><span class="rack-tag">pending</span></div><p class="micro">Readiness view only. Real-camera capture and calibration controls are not connected yet.</p></div></div>
+      </section>
+
+      <section id="timeline" class="timeline-section" aria-label="Session log">
+        <div class="section-heading timeline-heading"><h2><span class="section-no">05</span> session timeline <span id="event-count" class="count">01</span></h2><div class="timeline-tools"><div class="log-filters" role="group" aria-label="Timeline filter"><button class="active" data-filter="all">all</button><button data-filter="tools">tools + safety</button><button data-filter="models">model cues</button></div><button id="export" class="text-key">export session ↓</button></div></div>
+        <div class="timeline-table"><div class="timeline-table-heading"><span>time / local</span><span>source</span><span>input → outcome</span><span>latency</span></div><div id="event-list"></div></div>
+      </section>
+    </main>
+    <footer class="page-footer"><div><span class="footer-mark">↗</span> built to see. designed to stop.</div><span>Meta hackathon / 2026 <span class="footer-divider">/</span> simulation only</span><button id="reset" class="text-key">new simulation ↺</button></footer>
+  </div>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

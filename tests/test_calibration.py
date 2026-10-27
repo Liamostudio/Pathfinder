@@ -1,7 +1,7 @@
 """Calibration against synthetic camera views rendered from known poses (no hardware)."""
-import numpy as np
 import pytest
 
+np = pytest.importorskip("numpy")
 cv2 = pytest.importorskip("cv2")
 
 from lookandpick.calibration import TableCalibration, detect_marker  # noqa: E402
@@ -103,3 +103,37 @@ def test_ray_above_horizon_is_rejected():
     cal, _, _ = calibrate(CAM_A)
     with pytest.raises(ValueError):
         cal.pixel_to_table((640, -4000))
+
+
+@pytest.mark.parametrize('size', [0, -MARKER_M, float('nan'), float('inf')])
+def test_invalid_marker_size_is_rejected(size):
+    corners = detect_marker(render(CAM_A)[0])
+    with pytest.raises(ValueError, match='marker size'):
+        TableCalibration.from_marker(corners, size, K)
+
+
+def test_nonfinite_geometry_is_rejected():
+    cal, _, _ = calibrate(CAM_A)
+    with pytest.raises(ValueError, match='pixel'):
+        cal.pixel_to_table((float('nan'), 300))
+    with pytest.raises(ValueError, match='height'):
+        cal.pixel_to_table((640, 360), z=float('inf'))
+    with pytest.raises(ValueError, match='table point'):
+        cal.table_to_pixel((0, float('nan')))
+
+
+def test_invalid_intrinsics_are_rejected():
+    corners = detect_marker(render(CAM_A)[0])
+    bad = K.copy()
+    bad[0, 0] = 0
+    with pytest.raises(ValueError, match='focal lengths'):
+        TableCalibration.from_marker(corners, MARKER_M, bad)
+
+
+def test_calibration_owns_its_input_arrays():
+    matrix, rotation, translation = K.copy(), np.zeros(3), np.array([0., 0., 1.])
+    cal = TableCalibration(matrix, rotation, translation)
+    matrix[0, 0] = 0
+    translation[2] = 100
+    assert cal.camera_matrix[0, 0] == K[0, 0]
+    assert cal.tvec[2] == 1

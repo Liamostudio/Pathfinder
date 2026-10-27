@@ -14,3 +14,6 @@ testpaths = ["tests"]
 
 [tool.setuptools]
 packages = ["lookandpick", "lookandpick.adapters"]
+
+[tool.setuptools.package-data]
+lookandpick = ["web/*.html", "web/*.css", "web/*.js", "web/assets/*.svg", "web/assets/fonts/*.ttf", "web/assets/fonts/*.txt"]

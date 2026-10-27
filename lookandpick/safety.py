@@ -25,11 +25,21 @@ def point_segment_distance(p: Vec3, a: Vec3, b: Vec3) -> float:
 
 def speed_scale(separation_m: float) -> float:
     """0.0 (stop) to 1.0 (full speed), linear between the stop and slow distances."""
+    if not math.isfinite(separation_m):
+        return 0.0
     if separation_m <= STOP_DISTANCE_M:
         return 0.0
     if separation_m >= SLOW_DISTANCE_M:
         return 1.0
     return (separation_m - STOP_DISTANCE_M) / (SLOW_DISTANCE_M - STOP_DISTANCE_M)
+
+
+def valid_position(position: Vec3) -> bool:
+    """Reject malformed or non-finite coordinates before planning any motion."""
+    try:
+        return len(position) == 3 and all(math.isfinite(c) for c in position)
+    except (TypeError, ValueError, OverflowError):
+        return False
 
 
 class Safety:
@@ -50,6 +60,10 @@ class Safety:
     def allowed_speed(self, hands: list[Hand], path: tuple[Vec3, Vec3]) -> float:
         """Speed scale for a move along `path` given where the hands are right now."""
         if self.stopped:
+            return 0.0
+        if not all(valid_position(p) for p in path):
+            return 0.0
+        if not all(valid_position(h.position) for h in hands):
             return 0.0
         if not hands:
             return 1.0

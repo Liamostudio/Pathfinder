@@ -1,11 +1,12 @@
 """Camera sources: live webcams and recorded footage behind one interface.
 
 Develop against recordings first (ReplayCamera), then point the same code at LiveCamera.
-Needs the `vision` extra (opencv-python); imported lazily so the rest of the package doesn't.
+Needs the `vision` extra; OpenCV is imported lazily.
 """
 from __future__ import annotations
 
 import json
+import math
 import time
 from pathlib import Path
 from typing import Iterator, Protocol
@@ -32,14 +33,16 @@ class LiveCamera:
     def frames(self) -> Iterator[tuple[float, object]]:
         cv2 = _cv2()
         cap = cv2.VideoCapture(self._index)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._size[0])
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._size[1])
-        cap.set(cv2.CAP_PROP_FPS, self._fps)
         try:
+            if not cap.isOpened():
+                raise RuntimeError(f"Cannot open camera {self._index}")
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._size[0])
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._size[1])
+            cap.set(cv2.CAP_PROP_FPS, self._fps)
             while True:
                 ok, frame = cap.read()
                 if not ok:
-                    return
+                    raise RuntimeError(f"Camera {self._index} stopped delivering frames")
                 yield time.time(), frame
         finally:
             cap.release()
@@ -57,13 +60,20 @@ class ReplayCamera:
     def frames(self) -> Iterator[tuple[float, object]]:
         cv2 = _cv2()
         cap = cv2.VideoCapture(str(self.video))
-        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         i = 0
         try:
+            if not cap.isOpened():
+                raise RuntimeError(f"Cannot open video {self.video}")
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            fps = fps if math.isfinite(fps) and fps > 0 else 30.0
             while True:
                 ok, frame = cap.read()
                 if not ok:
+                    if self._stamps and i != len(self._stamps):
+                        raise RuntimeError("Video frame count does not match timestamp sidecar")
                     return
+                if self._stamps and i >= len(self._stamps):
+                    raise RuntimeError("Video frame count does not match timestamp sidecar")
                 yield (self._stamps[i] if i < len(self._stamps) else i / fps), frame
                 i += 1
         finally:
@@ -74,23 +84,49 @@ class Recorder:
     """Writes frames to <dir>/<name>.mp4 with per-frame timestamps in <name>.json."""
 
     def __init__(self, directory: Path, name: str, fps: float = 30.0) -> None:
+        if not name or name in ('.', '..') or Path(name).name != name:
+            raise ValueError("Recording name must be a single filename")
+        if not math.isfinite(fps) or fps <= 0:
+            raise ValueError("Recording fps must be positive and finite")
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.path = self.directory / f"{name}.mp4"
+        if self.path.exists() or self.path.with_suffix('.json').exists():
+            raise FileExistsError(f"Recording already exists: {self.path}")
         self._fps, self._writer, self._stamps = fps, None, []
+        self._closed = False
+
+    @property
+    def frame_count(self) -> int:
+        return len(self._stamps)
 
     def write(self, timestamp: float, frame) -> None:
+        if self._closed:
+            raise RuntimeError("Recorder is closed")
+        if not math.isfinite(timestamp) or (self._stamps and timestamp < self._stamps[-1]):
+            raise ValueError("Frame timestamps must be finite and nondecreasing")
         cv2 = _cv2()
         if self._writer is None:
             h, w = frame.shape[:2]
             self._writer = cv2.VideoWriter(str(self.path), cv2.VideoWriter_fourcc(*"mp4v"), self._fps, (w, h))
+            if not self._writer.isOpened():
+                self._writer.release()
+                self._writer = None
+                raise RuntimeError(f"Cannot create video {self.path}")
+            self._size = (h, w)
+        if frame.shape[:2] != self._size:
+            raise ValueError("Frame size changed during recording")
         self._writer.write(frame)
         self._stamps.append(timestamp)
 
     def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         if self._writer is not None:
             self._writer.release()
-        self.path.with_suffix(".json").write_text(json.dumps(self._stamps))
+        if self._stamps:
+            self.path.with_suffix(".json").write_text(json.dumps(self._stamps))
 
 
 def probe(max_index: int = 8) -> list[int]:
