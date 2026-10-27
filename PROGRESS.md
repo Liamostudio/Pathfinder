@@ -11,7 +11,7 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 - [ ] **Prep:** webcams mounted, gauge part fits a servo, follower parts printing, cuRobo docs read
   - Status: laptop GPU, driver, Python env and SAM 3.1 are ready (see log). Physical items not started; cuRobo docs not read yet.
 - [ ] **Cameras + calibration:** both cameras report the ArUco marker in the same place to within 1cm; a tapped pixel lands on the right table spot
-  - Status: OpenCV now installed and the built-in webcam captures (via `scripts/sam3_live.py`). The `adapters/camera.py` and `record.py` code is still never run. No calibration code. Only one camera present.
+  - Status: calibration code written and tested on synthetic views only (`lookandpick/calibration.py`, 7 tests pass): marker pose, pixel to table position, optional object height. Synthetic error 1–5 mm against the 1 cm target; two cameras 90° apart agree within 3 mm. **Not tested on real cameras or a printed marker**, no lens calibration, no multi-camera fusion, no hand-tap UI. The `adapters/camera.py` and `record.py` code was not run by me (Codex is changing it). Only one camera present.
 - [ ] **Safe zones, sim arm:** cuRobo runs on the Legion; a hand crossing the sim arm's path pauses it within a frame; sim arm plans around a mug; visualiser shows both
   - Status: speed-and-separation logic and stop latch exist with unit tests (5/5 pass under pytest), against a fake arm only. No cuRobo, no visualiser, no real hand detection.
 - [ ] **Language to target:** "pick up the apple" highlights the right apple and gives a 3D goal; "the left one" picks correctly between two; new objects labelled within a couple of seconds
@@ -26,7 +26,7 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 ## Working on now
 
 - Machine and model setup is done: driver, Python env, SAM 3.1 loading and tracking on the 5070.
-- Next: mission control skeleton with the model-call timeline; ArUco calibration with synthetic images; choose a lightweight hand detector for the fast loop.
+- Next: mission control skeleton with the model-call timeline; run calibration on a real printed marker; choose a lightweight hand detector for the fast loop.
 - Open question: try `torch.compile` on SAM 3.1 (Meta claims ~2x), and test it on hands and people, not just the bed clip.
 
 ## Blockers and decisions needed from Liam
@@ -51,6 +51,7 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 
 - **2026-10-27 (UK):**
   - GitHub set up by Liam (`gh auth login`); I created the public repo `Liamostudio/Pathfinder` and pushed `main` (9 commits, commit email `liam@liam-o.com` left public by Liam's choice). Checked no secrets, weights or recordings are tracked. Tested: `git ls-remote`/`gh repo view` show the repo public with `main`.
+  - Wrote `lookandpick/calibration.py` and `tests/test_calibration.py` (ArUco marker pose, pixel to table position). Tested: 7 pass on synthetic renders from known camera poses; errors 1–5 mm. Not tested on a real camera.
   - Codex is auditing and fixing bugs in parallel; its changes (e.g. `tests/test_regressions.py`) are not recorded here yet. README now lists SAM 3.1 under open source and the new scripts under built work.
   - NVIDIA driver `nvidia-driver-595-open` installed by Liam; DKMS modules signed; MOK key enrolled at boot. Tested: `nvidia-smi` shows the RTX 5070 (8151 MiB, CUDA 13.2), 4 nvidia modules loaded, `mokutil --test-key` enrolled.
   - Created `.venv` with `pip install -e ".[dev,vision]"` plus `torch` (cu130). Tested: pytest 5/5; `torch.cuda.is_available()` True (sm_120), matmul on GPU ran. `torch` not yet in `pyproject.toml`.
@@ -72,6 +73,7 @@ Written during the event unless marked otherwise.
 | Adapter interfaces + fakes (`adapters/base.py`, `fake.py`) | 2026-10-26, `7a1353e` | Fake tracker, sim arm |
 | Sim demo (`demo.py`), tests (`tests/test_safety.py`) | 2026-10-26, `7a1353e` | 5/5 pass under pytest |
 | Camera sources + recorder (`adapters/camera.py`, `record.py`) | 2026-10-26, `de4dcc1` | Untested |
+| ArUco calibration (`calibration.py`, `tests/test_calibration.py`) | 2026-10-27, `a1fe06e` | Synthetic images only |
 | Model access notes (`docs/model-access.md`) | 2026-10-26, `de4dcc1` | Secondary sources |
 | SAM 3.1 smoke test + webcam preview (`scripts/sam3_smoke.py`, `sam3_live.py`) | 2026-10-27, `3bdd0a1` | Run from scratch venv; wraps Meta's code with memory workarounds |
 
