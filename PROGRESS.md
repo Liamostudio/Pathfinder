@@ -13,20 +13,21 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 - [ ] **Cameras + calibration:** both cameras report the ArUco marker in the same place to within 1cm; a tapped pixel lands on the right table spot
   - Status: calibration code written and tested on synthetic views only (`lookandpick/calibration.py`, 7 tests pass): marker pose, pixel to table position, optional object height. Synthetic error 1–5 mm against the 1 cm target; two cameras 90° apart agree within 3 mm. **Not tested on real cameras or a printed marker**, no lens calibration, no multi-camera fusion, no hand-tap UI. Recording/replay now tested with synthetic MP4s by Codex; camera failures and recording cleanup covered. Physical webcam adapter/record CLI still untested. Only one camera present. Print-ready marker (`scripts/make_marker.py` -> `markers/aruco_id0_120mm.pdf`, A4 vector, rasterised back and measured at 119.7 mm of 120) and a real-camera check (`scripts/check_calibration.py`: pose, 10 cm grid, click-to-read table cm) written; the check recovers the camera position exactly on a synthetic render but has **not been run on a real camera or a printed marker**. Intrinsics are assumed from a guessed field of view until a lens calibration exists.
 - [ ] **Safe zones, sim arm:** cuRobo runs on the Legion; a hand crossing the sim arm's path pauses it within a frame; sim arm plans around a mug; visualiser shows both
-  - Status: speed-and-separation logic and stop latch exist against a fake arm only. Codex audit added finite-coordinate checks, gated gripper actions, adapter completion results, persistent grasp state and accurate partial outcomes. Full suite: 62 pass; continuous monitoring is not implemented. Deck GUI now visualises synthetic state and safety scenarios. No cuRobo, no physical arm twin, no real hand detection.
+  - Status: MediaPipe hand adapter, calibrated landmark envelopes and a separate 100 Hz watchdog implemented and tested with SimArm (150 ms development timeout; fails closed on startup/stalls/errors/end-of-source). CPU recorded static-hand test: 60/60 frames detect, mean 21.4 ms/p95 28.4 ms inference; real detector + synthetic table calibration ran 30 paced frames. Full suite 99 pass. GUI still uses synthetic hand scenarios; no live hand feed, cuRobo, physical arm twin or physical acceptance.
 - [ ] **Language to target:** "pick up the apple" highlights the right apple and gives a 3D goal; "the left one" picks correctly between two; new objects labelled within a couple of seconds
   - Status: partly de-risked, not done. SAM 3.1 turns a text prompt into a mask and tracks it (bed on Meta's sample clip, Liam saw it working on the webcam), but there's no 3D goal, no "the left one", no Muse Spark, and it isn't wired into the tool surface.
 - [ ] **Real arm swap-in:** calibrated in LeRobot, offset measured, real arm follows the twin's plan and picks a light prop
-  - Status: not started. Servos due 27–30 Oct. Needs Liam present with the 6V kill switch in reach.
+  - Status: SO-101 adapter scaffold now has bounded dry-run commands, presence/commissioning gates, lazy LeRobot wrapper and a read-only health helper. Fake-bus tests only; no supplied physical FK/IK or commissioned profile, no LeRobot installation and no serial connection. Servos due 27–30 Oct. Liam must be present with the 6V kill switch in reach.
 - [ ] **Hand pause + polish:** hand entering the path stops the arm 10/10 times, and Muse Spark says why
-  - Status: not started. SAM 3.1 runs at ~2.8 fps, too slow for the fast loop, so a lightweight hand detector is still needed.
+  - Status: lightweight MediaPipe detector and continuous watchdog code are in place (see safe-zones status and `docs/hand-safety.md`). Moving/occluded hand accuracy, live-camera loop, physical stopping latency and 10/10 hand-stop acceptance remain untested; Muse Spark narration is not wired.
 - [ ] **Video + submit:** features frozen 3 Nov, submitted evening of 4 Nov
   - Status: not started.
 
 ## Working on now
 
 - Machine and model setup is done: driver, Python env, SAM 3.1 loading and tracking on the 5070.
-- Next: mission control skeleton with the model-call timeline; print the marker and checkerboard (`markers/`, 100% scale), run `scripts/calibrate_lens.py --cam 2 --name ace-pro`, then `scripts/check_calibration.py --intrinsics calibration/ace-pro.json`; choose a lightweight hand detector for the fast loop.
+- Deck mission control is built; the next connection is timestamped hand observations/model events. The hand watchdog and SO-101 dry-run work are documented in `docs/hand-safety.md` and `docs/so101-bringup.md`.
+- Next: print the marker and checkerboard (`markers/`, 100% scale), run `scripts/calibrate_lens.py --cam 2 --name ace-pro`, then `scripts/check_calibration.py --intrinsics calibration/ace-pro.json`; test the selected MediaPipe detector on representative recorded moving hands and then the calibrated live-camera feed.
 - Open question: try `torch.compile` on SAM 3.1 (Meta claims ~2x), and test it on hands and people, not just the bed clip.
 
 ## Blockers and decisions needed from Liam
@@ -55,6 +56,7 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 ## Log
 
 - **2026-10-27 (UK):**
+  - Codex hand/arm brief: added HandDetector + MediaPipe CPU implementation, table projection/envelopes and optional frame transform, independent watchdog, monitored tracker and recorded-clip CLI. Added bounded SO-101 dry-run/LeRobot wrapper, read-only health helper and bench docs. Tested: 99 total tests (33 new); core-only import check 68 pass/14 skip; CPU static-hand replay mean 21.4 ms/p95 28.4 ms (60/60 detected), 30-frame paced monitored replay with synthetic calibration. MediaPipe 1.1.1 works on Python 3.14.4 in scratch venv. Initial push of main through `2e219c3` succeeded. No calibration/intrinsics/existing-script edits; no LeRobot installation, serial connection or real motion. Physical limits/force/stopping and live hand accuracy unverified.
   - Built Deck mission control (`lookandpick/mission_control.py`, `lookandpick/web/`): schematic scene, object selection, simulated hand gate, pick/place, stop/reset, guided demo, timeline/export, readiness view and browser-local media previews. Uses existing Python tool/safety classes; models and hardware not connected. Tested: 62 Python tests, JS syntax, wheel assets, browser guided demo/blocked pick/stop/reset/themes and 390 px layout. Browser WebM decode passed; mp4v rejected with handled error. Webcam not tested. Details: `docs/mission-control.md`.
   - GitHub set up by Liam (`gh auth login`); I created the public repo `Liamostudio/Pathfinder` and pushed `main` (9 commits, commit email `liam@liam-o.com` left public by Liam's choice). Checked no secrets, weights or recordings are tracked. Tested: `git ls-remote`/`gh repo view` show the repo public with `main`.
   - Wrote `lookandpick/calibration.py` and `tests/test_calibration.py` (ArUco marker pose, pixel to table position). Tested: 7 pass on synthetic renders from known camera poses; errors 1–5 mm. Not tested on a real camera.
@@ -83,6 +85,8 @@ Written during the event unless marked otherwise.
 | Marker generator + calibration check (`scripts/make_marker.py`, `check_calibration.py`, `tests/test_make_marker.py`) | 2026-10-27 | Synthetic and PDF round-trip only; no real camera |
 | Deck mission control (`mission_control.py`, `web/`, `tests/test_mission_control.py`) | 2026-10-27 | 14 new tests; local browser checks; synthetic state only |
 | Lens calibration (`intrinsics.py`, `scripts/calibrate_lens.py`, `tests/test_intrinsics.py`) | 2026-10-27 | Recovers a known distorted camera from synthetic corner views (4 tests); live capture loop never run on a real board |
+| Hand detector + watchdog (`adapters/hands.py`, `hand_safety.py`, `hand_loop.py`) | 2026-10-27 | Fake/recorded tests and CPU MediaPipe static-hand benchmark; no live-camera acceptance |
+| SO-101 dry-run + read-only health (`adapters/so101*.py`, `scripts/so101_check.py`) | 2026-10-27 | Fake buses only; no hardware commissioning |
 | Model access notes (`docs/model-access.md`) | 2026-10-26, `de4dcc1` | Secondary sources |
 | SAM 3.1 smoke test + webcam preview (`scripts/sam3_smoke.py`, `sam3_live.py`) | 2026-10-27, `3bdd0a1` | Run from scratch venv; wraps Meta's code with memory workarounds |
 

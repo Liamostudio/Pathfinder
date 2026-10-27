@@ -1,6 +1,9 @@
 """Fake adapters for development against scripted data."""
 from __future__ import annotations
 
+import math
+import threading
+
 from ..world import Hand, TrackedObject, Vec3
 
 
@@ -25,26 +28,39 @@ class FakeTracker:
 class SimArm:
     def __init__(self, start: Vec3 = (0.0, 0.0, 0.2)) -> None:
         self.position = start
+        self._lock = threading.RLock()
         self.gripping = False
         self.halted = False
+        self.speed_scale = 1.0
         self.log: list[tuple[str, object]] = []
 
     def move_to(self, target: Vec3, speed_scale: float) -> bool:
-        if self.halted or speed_scale <= 0.0:
-            self.log.append(("blocked", target))
-            return False
-        self.position = target
-        self.log.append(("move", (target, speed_scale)))
-        return True
+        with self._lock:
+            speed_scale = min(speed_scale, self.speed_scale)
+            if self.halted or speed_scale <= 0.0:
+                self.log.append(("blocked", target))
+                return False
+            self.position = target
+            self.log.append(("move", (target, speed_scale)))
+            return True
 
     def grip(self, closed: bool) -> bool:
-        if self.halted:
-            self.log.append(("blocked_grip", closed))
-            return False
-        self.gripping = closed
-        self.log.append(("grip", closed))
-        return True
+        with self._lock:
+            if self.halted or self.speed_scale <= 0:
+                self.log.append(("blocked_grip", closed))
+                return False
+            self.gripping = closed
+            self.log.append(("grip", closed))
+            return True
 
     def halt(self) -> None:
-        self.halted = True
-        self.log.append(("halt", None))
+        with self._lock:
+            self.halted = True
+            self.speed_scale = 0.0
+            self.log.append(("halt", None))
+
+    def set_speed_scale(self, scale: float) -> None:
+        if not math.isfinite(scale) or not 0 <= scale <= 1:
+            raise ValueError('Invalid speed scale')
+        with self._lock:
+            self.speed_scale = 0.0 if self.halted else scale

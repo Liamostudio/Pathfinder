@@ -65,7 +65,9 @@ class Safety:
             return 0.0
         if not all(valid_position(h.position) for h in hands):
             return 0.0
+        if not all(math.isfinite(h.radius_m) and h.radius_m >= 0 for h in hands):
+            return 0.0
         if not hands:
             return 1.0
-        nearest = min(point_segment_distance(h.position, *path) for h in hands)
+        nearest = min(max(0.0, point_segment_distance(h.position, *path) - h.radius_m) for h in hands)
         return speed_scale(nearest)

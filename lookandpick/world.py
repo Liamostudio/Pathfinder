@@ -19,6 +19,7 @@ class TrackedObject:
 class Hand:
     id: str
     position: Vec3
+    radius_m: float = 0.0  # conservative envelope around the projected landmarks
 
 
 @dataclass

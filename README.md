@@ -13,6 +13,8 @@ New work started on **26 October 2026**, straight after the kickoff call. The fi
 - Scripts to run SAM 3.1 on the 8 GB laptop GPU: a memory and speed test, and a webcam preview that tracks a text prompt (`scripts/`)
 - ArUco table calibration with synthetic-image tests; real-camera validation still pending
 - Deck mission control GUI: simulated scene, safety scenarios, pick/place controls, preview media and session timeline
+- Lightweight hand detector, calibrated hand envelopes and an independent timeout watchdog (simulation tested)
+- SO-101 adapter scaffold with bounded dry-run commands and a read-only health-check helper
 
 ## Open source we build on
 
@@ -59,3 +61,6 @@ gate; no GPU, API key or frontend build needed. Webcam and local recording previ
 available, with no detection applied. Models and real hardware are not connected.
 
 See the [mission control guide](docs/mission-control.md) for controls, media formats and integration points.
+
+See [hand safety](docs/hand-safety.md) for optional MediaPipe setup and recorded-clip checks,
+and [SO-101 bring-up](docs/so101-bringup.md) for dry-run limits and Liam's bench checklist.

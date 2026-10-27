@@ -8,6 +8,8 @@ dependencies = []
 [project.optional-dependencies]
 dev = ["pytest"]
 vision = ["opencv-contrib-python", "numpy"]
+hands = ["mediapipe>=1.1.1,<2", "numpy"]
+hardware = ["lerobot[feetech]"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

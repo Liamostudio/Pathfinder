@@ -2,8 +2,22 @@
 from __future__ import annotations
 
 from typing import Protocol
+from dataclasses import dataclass
 
 from ..world import Hand, TrackedObject, Vec3
+
+
+@dataclass(frozen=True)
+class PixelHand:
+    """A detector's image-space landmarks in pixels, not estimated metric depth."""
+
+    id: str
+    pixels: tuple[tuple[float, float], ...]
+
+
+class HandDetector(Protocol):
+    def detect(self, frame: object, timestamp_ms: int) -> list[PixelHand]: ...
+    def close(self) -> None: ...
 
 
 class Tracker(Protocol):
@@ -23,3 +37,9 @@ class Arm(Protocol):
     def move_to(self, target: Vec3, speed_scale: float) -> bool: ...
     def grip(self, closed: bool) -> bool: ...
     def halt(self) -> None: ...
+
+
+class SpeedControlledArm(Arm, Protocol):
+    """Zero must pause ongoing motion; halt must latch independently of this setter."""
+
+    def set_speed_scale(self, scale: float) -> None: ...
