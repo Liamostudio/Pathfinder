@@ -1,6 +1,6 @@
 # Progress
 
-**Milestone:** Prep (in progress) · **State:** On track · **Last updated:** 2026-10-26 22:30 UK
+**Milestone:** Prep (in progress) · **State:** On track · **Last updated:** 2026-10-27 UK
 
 Hackathon window: 26 Oct – 4 Nov 2026 (submit by 9pm ET Wed 4 Nov = 2am UK Thu 5 Nov). Features frozen 3 Nov.
 
@@ -9,48 +9,55 @@ Hackathon window: 26 Oct – 4 Nov 2026 (submit by 9pm ET Wed 4 Nov = 2am UK Thu
 A box is ticked only when its acceptance test has passed, with how it was tested.
 
 - [ ] **Prep:** webcams mounted, gauge part fits a servo, follower parts printing, cuRobo docs read
-  - Status: not started on the physical items; cuRobo docs not read yet.
+  - Status: laptop GPU, driver, Python env and SAM 3.1 are ready (see log). Physical items not started; cuRobo docs not read yet.
 - [ ] **Cameras + calibration:** both cameras report the ArUco marker in the same place to within 1cm; a tapped pixel lands on the right table spot
-  - Status: capture/record/replay code written, untested (no OpenCV on this machine yet). No calibration code.
+  - Status: OpenCV now installed and the built-in webcam captures (via `scripts/sam3_live.py`). The `adapters/camera.py` and `record.py` code is still never run. No calibration code. Only one camera present.
 - [ ] **Safe zones, sim arm:** cuRobo runs on the Legion; a hand crossing the sim arm's path pauses it within a frame; sim arm plans around a mug; visualiser shows both
-  - Status: speed-and-separation logic and stop latch exist with unit tests, against a fake arm only. No cuRobo, no visualiser, no real hand detection.
+  - Status: speed-and-separation logic and stop latch exist with unit tests (5/5 pass under pytest), against a fake arm only. No cuRobo, no visualiser, no real hand detection.
 - [ ] **Language to target:** "pick up the apple" highlights the right apple and gives a 3D goal; "the left one" picks correctly between two; new objects labelled within a couple of seconds
-  - Status: not started. Tool surface (`get_scene/pick/place/stop/say`) exists but no model is wired in.
+  - Status: partly de-risked, not done. SAM 3.1 turns a text prompt into a mask and tracks it (bed on Meta's sample clip, Liam saw it working on the webcam), but there's no 3D goal, no "the left one", no Muse Spark, and it isn't wired into the tool surface.
 - [ ] **Real arm swap-in:** calibrated in LeRobot, offset measured, real arm follows the twin's plan and picks a light prop
   - Status: not started. Servos due 27–30 Oct. Needs Liam present with the 6V kill switch in reach.
 - [ ] **Hand pause + polish:** hand entering the path stops the arm 10/10 times, and Muse Spark says why
-  - Status: not started.
+  - Status: not started. SAM 3.1 runs at ~2.8 fps, too slow for the fast loop, so a lightweight hand detector is still needed.
 - [ ] **Video + submit:** features frozen 3 Nov, submitted evening of 4 Nov
   - Status: not started.
 
 ## Working on now
 
-- Repo scaffold and local-only safety layer (done in sim; hardware untouched).
-- Setting up the Python environment so camera code and tests can actually run.
-- Next: mission control skeleton with the model-call timeline; ArUco calibration with synthetic images.
+- Machine and model setup is done: driver, Python env, SAM 3.1 loading and tracking on the 5070.
+- Next: mission control skeleton with the model-call timeline; ArUco calibration with synthetic images; choose a lightweight hand detector for the fast loop.
+- Open question: try `torch.compile` on SAM 3.1 (Meta claims ~2x), and test it on hands and people, not just the bed clip.
 
 ## Blockers and decisions needed from Liam
 
-- ~~**Python env**~~ **Resolved 2026-10-27:** `python3.14-venv` installed; `.venv` (git-ignored) has pytest, OpenCV, numpy, PyTorch.
-- ~~**GPU**~~ **Resolved 2026-10-27:** Legion is in dGPU mode; `nvidia-driver-595-open` (595.99.02) installed, MOK key enrolled (Secure Boot stays on), `nvidia-smi` shows the RTX 5070 with 8151 MiB, CUDA 13.2. PyTorch 2.14.1+cu130 sees the GPU (see log).
-- ~~**SAM 3.1 weights**~~ **Downloaded 2026-10-27:** access granted; `facebook/sam3.1` (3.5 GB `sam3.1_multiplex.pt` + configs) is in `~/.cache/huggingface`, outside the repo. Weights are open to download, not API-only. Not yet loaded or run; no Transformers integration, so needs Meta's SAM 3 GitHub repo. 8 GB VRAM fit untested.
-- **SAM 3.1 on the 5070 (2026-10-27, works but slow):** `facebookresearch/sam3` cloned to `~/src/sam3`, installed `--no-deps` into scratch venv `~/src/sam3-venv` (Python 3.14, numpy 2.5, plus `pycocotools`). Cause of the earlier OOM: the predictor batches 16 frames through the detector; setting `model.batched_grounding_batch_size = 1` and `postprocess_batch_size = 1` fixes it. Tested with `scripts/sam3_smoke.py`: text-prompted tracking on Meta's `bedroom.mp4` runs, peak VRAM 4.47 GB, steady ~2.7 fps (first frame 5 s), no compile, no FA3, bf16 only on vision trunk + text encoder. **Correction (later 2026-10-27):** the earlier "0 objects" was my script reading the wrong output key (masks sit under `outputs`), not a model failure. With `scripts/sam3_live.py` the prompt "bed" on `bedroom.mp4` segments the whole bed on all 30 frames, checked by eye on frame 20; all 1623 checkpoint tensors verified loaded; 2.8 fps, peak 4.2 GB. Liam ran `sam3_live.py` on the webcam: window opens, masks drawn, reports it "seems like it's working" (not scored for accuracy, speed or hand detection). **Caveats:** 2.7 fps is far below the 15-30 Hz fast loop, so SAM 3.1 is a medium/slow-loop model and hand safety needs the lightweight detector. Upstream quirks worked around in the script: `offload_state_to_cpu` rejected by 3.1 `init_state`; `multiplex_count` must stay 16.
 - **GitHub:** no remote yet. Repo must be public; need the repo name/URL to push.
 - **Credits:** confirm the Meta API credit amount on the event details page (transcript was garbled: ~$150 stated).
-- **Unconfirmed:** Muse Voice Transcribe is reportedly streaming-only; Glimmer weights, size and MacBook serving route unchecked.
 - **Cameras:** only the laptop's built-in camera is present (`/dev/video0`; `video1` is its metadata node). The two external webcams aren't plugged in or mounted yet.
-- **No sudo for me:** needs a password, so system installs (`python3.14-venv`, NVIDIA driver) must be run by Liam.
+- **Unconfirmed:** Muse Voice Transcribe is reportedly streaming-only; Glimmer weights, size and MacBook serving route unchecked.
+- **Stray file:** a screenshot of the SAM preview window sits untracked in the repo root; it likely shows Liam's face, so don't commit it (move, delete or git-ignore).
+- **No sudo for me:** needs a password, so system installs must be run by Liam.
+- Resolved 2026-10-27: Python env (`python3.14-venv`), NVIDIA driver, Hugging Face access to `facebook/sam3.1`.
+
+## SAM 3.1 setup notes (2026-10-27)
+
+- Weights: `facebook/sam3.1` (3.5 GB `sam3.1_multiplex.pt`) in `~/.cache/huggingface`, outside the repo. Open to download, not API-only; all 1623 checkpoint tensors verified loaded.
+- Code: `facebookresearch/sam3` cloned to `~/src/sam3`, installed `--no-deps` into scratch venv `~/src/sam3-venv` (Python 3.14, numpy 2.5, extras `pycocotools` and full `opencv-python`). Meta pins `numpy<2` and Python 3.12+; both ignored and it still runs.
+- Memory fix: the predictor batches 16 frames through the detector and ran out of memory on 8 GB. Setting `model.batched_grounding_batch_size = 1` and `postprocess_batch_size = 1` fixes it. Also bf16 on the vision trunk and text encoder, and `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`.
+- Upstream quirks worked around in the scripts only: `offload_state_to_cpu` rejected by 3.1 `init_state`; `multiplex_count` must stay 16; FlashAttention 3 not installed.
+- Measured: peak VRAM ~4.2–4.5 GB, ~2.8 fps steady (first frame ~5 s), no compile, no FA3. Detection checked by eye on one frame (bed, `bedroom.mp4`); not scored for accuracy, and hands and people untested.
+- Correction: an earlier "0 objects found" came from my script reading the wrong output key (masks sit under `outputs`), not from the model.
 
 ## Log
 
-- **2026-10-27 (morning, UK):** NVIDIA driver installed by Liam via `apt install nvidia-driver-595-open` (open variant for the 5070). DKMS built and signed modules for both kernels; MOK key enrolled at boot. Tested: after reboot `nvidia-smi` lists the RTX 5070 (8151 MiB, driver 595.99.02, CUDA 13.2), 4 nvidia modules loaded, `mokutil --test-key` says enrolled. Then created `.venv` with `pip install -e ".[dev,vision]"` plus `torch` (cu130). Tested: pytest 5/5 pass; `torch.cuda.is_available()` True on RTX 5070 Laptop (sm_120), 2048x2048 matmul on GPU ran. Not done: `torch` isn't in `pyproject.toml` yet. No code change.
+- **2026-10-27 (UK):**
+  - NVIDIA driver `nvidia-driver-595-open` installed by Liam; DKMS modules signed; MOK key enrolled at boot. Tested: `nvidia-smi` shows the RTX 5070 (8151 MiB, CUDA 13.2), 4 nvidia modules loaded, `mokutil --test-key` enrolled.
+  - Created `.venv` with `pip install -e ".[dev,vision]"` plus `torch` (cu130). Tested: pytest 5/5; `torch.cuda.is_available()` True (sm_120), matmul on GPU ran. `torch` not yet in `pyproject.toml`.
+  - Hugging Face access granted by Liam; SAM 3.1 checkpoint downloaded after Liam approved the 3.5 GB size.
+  - Got SAM 3.1 running on the 5070 (see setup notes); wrote `scripts/sam3_smoke.py` and `scripts/sam3_live.py` (record webcam clip, track a prompt, play back with masks). Tested: sample clip headless, and Liam ran the webcam window ("seems like it's working").
+  - Broke / not done: SAM only at ~2.8 fps; no accuracy, hand or person testing; `adapters/camera.py` still never run; scripts hard-code local paths and need the scratch venv.
 - **2026-10-26 (22:15, UK):** Diagnosed blockers (no code change): dGPU missing from PCI bus; only the built-in webcam present; no passwordless sudo.
-- **2026-10-26 (evening, UK):**
-  - Read kickoff transcript: building opens 26 Oct, not 27 Oct as the earlier notes said.
-  - Scaffolded repo: `README.md`, `pyproject.toml`, `.gitignore`, `.env.example`, `lookandpick/{world,safety,tools,demo}.py`, `lookandpick/adapters/{base,fake}.py`.
-  - Added `lookandpick/adapters/camera.py`, `lookandpick/record.py`, `docs/model-access.md` (model access notes from web search, secondary sources only).
-  - Tested: 5 safety tests pass (run by hand, pytest not installed); sim demo runs. Camera code only syntax-checked, never run.
-  - Broke / not done: venv creation failed (no `python3-venv`); no git identity was set (repo-local identity set to Liam).
+- **2026-10-26 (evening, UK):** Read kickoff transcript (building opened 26 Oct, not 27 Oct). Scaffolded repo, safety layer, tool surface, fake adapters, camera/record code and model access notes. 5 safety tests passed by hand; camera code only syntax-checked.
 
 ## Built during the hackathon
 
@@ -62,8 +69,9 @@ Written during the event unless marked otherwise.
 | Safety layer (`safety.py`) | 2026-10-26, `7a1353e` | Speed-and-separation, stop latch; distances are placeholders |
 | Tool surface (`tools.py`) | 2026-10-26, `7a1353e` | Safety-gated `get_scene/pick/place/stop/say` |
 | Adapter interfaces + fakes (`adapters/base.py`, `fake.py`) | 2026-10-26, `7a1353e` | Fake tracker, sim arm |
-| Sim demo (`demo.py`), tests (`tests/test_safety.py`) | 2026-10-26, `7a1353e` | |
+| Sim demo (`demo.py`), tests (`tests/test_safety.py`) | 2026-10-26, `7a1353e` | 5/5 pass under pytest |
 | Camera sources + recorder (`adapters/camera.py`, `record.py`) | 2026-10-26, `de4dcc1` | Untested |
 | Model access notes (`docs/model-access.md`) | 2026-10-26, `de4dcc1` | Secondary sources |
+| SAM 3.1 smoke test + webcam preview (`scripts/sam3_smoke.py`, `sam3_live.py`) | 2026-10-27, `3bdd0a1` | Run from scratch venv; wraps Meta's code with memory workarounds |
 
-**Used, not built:** SAM 3.1 (Meta), cuRobo (NVlabs), LeRobot (Hugging Face), SO-101 URDF (community). None integrated yet.
+**Used, not built:** SAM 3.1 (Meta, running locally via its repo), cuRobo (NVlabs), LeRobot (Hugging Face), SO-101 URDF (community). Only SAM is integrated so far, and only as a standalone script.
