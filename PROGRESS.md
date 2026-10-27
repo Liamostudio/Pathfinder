@@ -31,9 +31,9 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 
 ## Blockers and decisions needed from Liam
 
-- **Python env:** `python3.14-venv` isn't installed, so no virtualenv, no pytest, no OpenCV/numpy. Needs `sudo apt install python3.14-venv`, or tell me to use another route (e.g. uv).
-- **GPU:** BIOS is already on Switchable Graphics, yet the RTX 5070 is still absent from `lspci` (Intel iGPU only), no NVIDIA driver, no `nvidia-smi`, `ubuntu-drivers devices` lists nothing. Secure Boot is **enabled**, so once the card appears the driver (`-open` variant) will need a MOK key enrolment or Secure Boot off. Next: try Discrete Graphics in BIOS and check BIOS More Settings for an iGPU-only toggle; then Lenovo Vantage/BIOS update. Blocks SAM 3.1 and cuRobo.
-- **SAM 3.1 weights:** gated on Hugging Face (`facebook/sam3.1`); Liam needs to accept Meta's terms and authenticate.
+- ~~**Python env**~~ **Resolved 2026-10-27:** `python3.14-venv` installed; `.venv` (git-ignored) has pytest, OpenCV, numpy, PyTorch.
+- ~~**GPU**~~ **Resolved 2026-10-27:** Legion is in dGPU mode; `nvidia-driver-595-open` (595.99.02) installed, MOK key enrolled (Secure Boot stays on), `nvidia-smi` shows the RTX 5070 with 8151 MiB, CUDA 13.2. PyTorch 2.14.1+cu130 sees the GPU (see log).
+- ~~**SAM 3.1 weights**~~ **Downloaded 2026-10-27:** access granted; `facebook/sam3.1` (3.5 GB `sam3.1_multiplex.pt` + configs) is in `~/.cache/huggingface`, outside the repo. Weights are open to download, not API-only. Not yet loaded or run; no Transformers integration, so needs Meta's SAM 3 GitHub repo. 8 GB VRAM fit untested.
 - **GitHub:** no remote yet. Repo must be public; need the repo name/URL to push.
 - **Credits:** confirm the Meta API credit amount on the event details page (transcript was garbled: ~$150 stated).
 - **Unconfirmed:** Muse Voice Transcribe is reportedly streaming-only; Glimmer weights, size and MacBook serving route unchecked.
@@ -42,6 +42,7 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 
 ## Log
 
+- **2026-10-27 (morning, UK):** NVIDIA driver installed by Liam via `apt install nvidia-driver-595-open` (open variant for the 5070). DKMS built and signed modules for both kernels; MOK key enrolled at boot. Tested: after reboot `nvidia-smi` lists the RTX 5070 (8151 MiB, driver 595.99.02, CUDA 13.2), 4 nvidia modules loaded, `mokutil --test-key` says enrolled. Then created `.venv` with `pip install -e ".[dev,vision]"` plus `torch` (cu130). Tested: pytest 5/5 pass; `torch.cuda.is_available()` True on RTX 5070 Laptop (sm_120), 2048x2048 matmul on GPU ran. Not done: `torch` isn't in `pyproject.toml` yet. No code change.
 - **2026-10-26 (22:15, UK):** Diagnosed blockers (no code change): dGPU missing from PCI bus; only the built-in webcam present; no passwordless sudo.
 - **2026-10-26 (evening, UK):**
   - Read kickoff transcript: building opens 26 Oct, not 27 Oct as the earlier notes said.
