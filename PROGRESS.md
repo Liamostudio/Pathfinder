@@ -73,7 +73,7 @@ Written during the event unless marked otherwise.
 | Adapter interfaces + fakes (`adapters/base.py`, `fake.py`) | 2026-10-26, `7a1353e` | Fake tracker, sim arm |
 | Sim demo (`demo.py`), tests (`tests/test_safety.py`) | 2026-10-26, `7a1353e` | 5/5 pass under pytest |
 | Camera sources + recorder (`adapters/camera.py`, `record.py`) | 2026-10-26, `de4dcc1` | Untested |
-| ArUco calibration (`calibration.py`, `tests/test_calibration.py`) | 2026-10-27, `a1fe06e` | Synthetic images only |
+| ArUco calibration (`calibration.py`, `tests/test_calibration.py`) | 2026-10-27 | Synthetic images only |
 | Model access notes (`docs/model-access.md`) | 2026-10-26, `de4dcc1` | Secondary sources |
 | SAM 3.1 smoke test + webcam preview (`scripts/sam3_smoke.py`, `sam3_live.py`) | 2026-10-27, `3bdd0a1` | Run from scratch venv; wraps Meta's code with memory workarounds |
 
