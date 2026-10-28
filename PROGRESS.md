@@ -23,6 +23,13 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 - [ ] **Video + submit:** features frozen 3 Nov, submitted evening of 4 Nov
   - Status: not started.
 
+## What is live and what is not (28 Oct, honest status)
+
+- **Live:** Muse Spark API calls (real latency and cost, on fake adapters only); MuJoCo physics and renders; Ace Pro frames.
+- **Not live:** SAM (`sam3_live.py` records a clip, then processes it at ~2.8 fps); MediaPipe hand detection (tested on recorded clips; the live loop below is written but has not run on a real camera); Deck (fake tracker/arm, a scripted demo cue, simulated hand scenarios); the sim scenario runs (hands injected by the tests); calibration (synthetic and sim renders only).
+- **Not built or not connected:** voice; orchestrator wired to the sim; SAM as a live worker; Deck on a real backend.
+- The hosted replay for submission is pre-recorded by design and must be labelled as a replay; the demo video should be the live run.
+
 ## Working on now
 
 - **Plan for 28 Oct:** `docs/plan-2026-10-28.md` (tracks for Liam, Claude and Codex; Codex brief in `docs/codex-brief-sim-props-and-deck.md`). Meta API facts (OpenAI-compatible endpoint, Voice Transcribe file upload, open-weights Glimmer) in `docs/model-access.md`.
@@ -61,6 +68,7 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 ## Log
 
 - **2026-10-28 (UK), hardware (from Liam):** servos delayed, hoped for today, cut-off still 30 Oct (fallback above). Printed: all follower arm parts and the ArUco marker panel (160 mm plate, 120 mm marker), so the print-the-marker step is done. Arrived: power supply and barrel-jack to screw-terminal adapters (5V 10A, 5.5 x 2.1 mm, centre-positive; check ~5V with a multimeter before connecting the URT board). Meta AI glasses received (scope question in Blockers). No acceptance test has changed; no milestones ticked.
+- **2026-10-28 (UK), live hand loop:** wrote `lookandpick/adapters/live_camera.py` (newest-frame-only webcam source that raises on a stall), `lookandpick/live_hands.py` (marker calibration from the median of several frames, the existing MediaPipe detector and watchdog on live frames, a patrol arm on `SimArm` or the MuJoCo bridge, on-screen STOP/SLOW/CLEAR, per-frame JSONL timing log under `recordings/`, summary of inference/decision/frame-age percentiles) and `tests/test_live_hands.py`. Tested: 10 new tests with a fake camera (rendered marker frames) and fake detector: stale frames dropped, camera stall and failure raise, calibration recovers the camera and rejects missing/poor markers, no hand = full speed, hand on the path = stop with decision latency under 100 ms, camera stall latches a stop and halts the arm; 141 tests pass. **Not run on a real camera:** the `/tmp` MediaPipe environment and model were lost (tmp was cleared), and reinstalling needs Liam's approval. Safety distances (stop 15 cm, slow inside 50 cm) are still placeholders.
 - **2026-10-28 (UK), model layer:** Liam created the Meta API key (in git-ignored `.env`). Tested: a real Muse Spark call returned HTTP 200; Spark always reasons first, so a 20-token budget came back empty (client now floors `max_tokens` at 400). Built `lookandpick/models/` (OpenAI-compatible `MetaClient` with retries, hard spend/call caps and cost per call; `CallLog` in Deck's event shape; `Orchestrator` limited to the five tools with argument validation and a local Stop bypass; `FakeLLM`) and `scripts/spark_smoke.py`. Tested: 28 new tests (fake HTTP API, scripted model through the real `Tools`/`Safety`); real smoke runs against fake adapters: "pick up the apple and put it next to the mug" gave pick, place, say correctly in 4 model calls (about 1–5 s and 0.1–0.4 cent each, ~1.2 cent per command); "pick up the banana" correctly refused with `say`. Not done: Glimmer, Voice Transcribe, wiring to the sim, labelling on scene change.
 - **2026-10-28 (UK):** Renamed `Simulation Environment/` to `simulation/` (no space in the path), repaired its venv paths, restarted the server, moved the 5 MB scenario samples out of git (kept `reports/acceptance-summary.json`). Tested: 28 sim tests and 103 project tests pass; server answers HTTP 200. Pushed through `693c61e`.
 - **2026-10-27 (UK):**
@@ -100,6 +108,7 @@ Written during the event unless marked otherwise.
 | Hand detector + watchdog (`adapters/hands.py`, `hand_safety.py`, `hand_loop.py`) | 2026-10-27 | Fake/recorded tests and CPU MediaPipe static-hand benchmark; no live-camera acceptance |
 | SO-101 dry-run + read-only health (`adapters/so101*.py`, `scripts/so101_check.py`) | 2026-10-27 | Fake buses only; no hardware commissioning |
 | Model layer (`models/`, `scripts/spark_smoke.py`, `tests/test_models.py`) | 2026-10-28 | Fake-API and scripted tests pass; real Spark smoke runs on fake adapters only; not on the sim yet |
+| Live hand loop (`live_hands.py`, `adapters/live_camera.py`, `tests/test_live_hands.py`) | 2026-10-28 | Fake camera/detector tests only; never run on a real camera |
 | Model access notes (`docs/model-access.md`) | 2026-10-26, `de4dcc1` | Secondary sources |
 | SAM 3.1 smoke test + webcam preview (`scripts/sam3_smoke.py`, `sam3_live.py`) | 2026-10-27, `3bdd0a1` | Run from scratch venv; wraps Meta's code with memory workarounds |
 
