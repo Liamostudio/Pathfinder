@@ -19,8 +19,9 @@ In priority order:
 4. **Contact grasp** replacing the ideal attachment, plus STS3215 lag/torque limits and a reduced-torque
    option for the 5V supply. Keep the scenario runner green.
 5. **Deck on the sim:** a backend switch so `lookandpick.mission_control` can run on `SimulationClient`,
-   and a model-call timeline that accepts entries as JSON `{name, input, output, latency_ms, cost_usd,
-   timestamp}` (Claude's call log will emit this shape; keep the schema in one documented place).
+   and a model-call timeline fed from Claude's `CallLog` (`lookandpick/models/calllog.py`), whose entries
+   already use Deck's event keys: `{id, time, source, input, output, latency_ms, status, scripted}` plus
+   `cost_usd` and `tokens`. Show cost and tokens in the timeline; do not invent a second schema.
 6. Finish the camera/detector fault matrix from `BRIEF-CHECK.md`.
 
 Report what you could not verify (render rate alongside SAM on the 8 GB card, grasp reliability).
