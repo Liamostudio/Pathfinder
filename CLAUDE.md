@@ -19,7 +19,7 @@ Live plan docs (source of truth):
 
 - **Legion 5** (dev + robot machine): Ubuntu 26.04 LTS dual-boot, RTX 5070 Laptop **8GB VRAM** (the real constraint), 32GB RAM. Runs cameras, SAM 3.1, cuRobo, LeRobot.
 - **M1 Max MacBook Pro, 64GB:** serves Muse Glimmer (30B, ~4-bit, <20GB) locally; mission control front end.
-- **Arm:** self-built SO-101 follower, 6× Feetech STS3215 (7.4V, 1:345) + URT board. **6V supply only — never above 7.4V.** Printed parts done; servos due 27–30 Oct. Set each motor ID one at a time in LeRobot before assembly.
+- **Arm:** self-built SO-101 follower, 6× Feetech STS3215 (7.4V, 1:345) + URT board. **5V 10A supply only (5.5 x 2.1 mm, centre-positive) — never above 7.4V; read ~5V with a multimeter at the adapter terminals before connecting the URT board.** Follower parts and the marker panel are printed; servos delayed, hardware cut-off 30 Oct. Set each motor ID one at a time in LeRobot before assembly.
 - Two fixed webcams (~90° apart) + ArUco marker at the arm base. Action cams available for filming tests.
 
 ## Architecture
@@ -58,11 +58,11 @@ Hero demo is **pick-and-place** for now. Filming/B-roll (arm holding an action c
 - Safety-critical checks run locally and never depend on the network.
 - Prefer speed-and-separation (slow as people approach, stop at minimum distance) over hard pauses.
 - "Stop" bypasses everything.
-- **Never command the real arm from a remote/unattended session.** Sim, replays and code are fine remotely; anything that powers the servos needs Liam physically present with the 6V kill switch in reach.
+- **Never command the real arm from a remote/unattended session.** Sim, replays and code are fine remotely; anything that powers the servos needs Liam physically present with the 5V kill switch in reach.
 
 ## Build order
 
-Cameras + calibration → safe zones with sim arm → language to target → real arm swap-in (from ~31 Oct) → hand slowdown + polish → video + submit.
+Cameras + calibration → safe zones with sim arm → language to target → real arm swap-in (when the servos arrive; cut-off 30 Oct, else the core build stays on the MuJoCo sim arm and the real arm follows for the video) → hand slowdown + polish → video + submit.
 Cut lines, in order: multi-step tasks, obstacle rerouting, target confirmation, second camera. Never cut: hand safety, one camera, one clean pick.
 Stub every adapter with fake data first; develop against recorded camera footage; swap in real models one at a time.
 

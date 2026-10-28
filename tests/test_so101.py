@@ -92,7 +92,7 @@ def test_presence_requires_exact_confirmation_and_commissioning():
     stream = SimpleNamespace(isatty=lambda:True)
     with pytest.raises(PermissionError):
         require_local_presence(True,stdin=stream,stdout=stream,environ={},confirm=lambda _:'yes')
-    require_local_presence(True,stdin=stream,stdout=stream,environ={},confirm=lambda _:'6V KILL SWITCH READY')
+    require_local_presence(True,stdin=stream,stdout=stream,environ={},confirm=lambda _:'5V KILL SWITCH READY')
     with pytest.raises(PermissionError,match='commissioned'):
         SO101Arm(dry_run=False,i_am_present=True,presence_check=lambda _:None)
 

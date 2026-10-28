@@ -28,7 +28,7 @@ New work started on **26 October 2026**, straight after the kickoff call. The fi
 - Safety checks run locally and never depend on the network.
 - Slow as people approach, stop at minimum distance.
 - "Stop" bypasses everything.
-- The real arm is only ever powered with a person present and the 6V kill switch in reach.
+- The real arm is only ever powered with a person present and the 5V kill switch in reach.
 
 The current implementation checks before simulated moves and gripper actions. Continuous
 hand monitoring, detector-health checks, full-arm geometry and a real hardware adapter are

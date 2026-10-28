@@ -6,8 +6,8 @@ uses `SimArm` exclusively.
 
 ## Power and motor IDs
 
-Use this project's **6V supply only; never exceed 7.4V**. Liam must be physically present,
-with the 6V kill switch in reach whenever servos are powered. Do not run setup, calibration
+Use this project's **5V 10A supply only (5.5 x 2.1 mm, centre-positive); never exceed 7.4V**. Read ~5V with a multimeter at the adapter terminals before connecting the URT board. Liam must be physically present,
+with the 5V kill switch in reach whenever servos are powered. Do not run setup, calibration
 or motion through an unattended/remote session.
 
 Before assembly, connect **one motor at a time** to the URT board. New motors may all have
@@ -77,7 +77,7 @@ Development ceilings (profiles can narrow joint ranges, not widen them):
 
 These numbers are development constraints, not commissioned safe ranges. Real mode refuses
 unless all of the following are supplied: `dry_run=False`, `i_am_present=True`, a local
-interactive stdin/stdout, the exact confirmation `6V KILL SWITCH READY`, a commissioned
+interactive stdin/stdout, the exact confirmation `5V KILL SWITCH READY`, a commissioned
 limits profile, FK/IK and an already connected/calibrated degree-mode follower bus. SSH
 environment markers are refused. No motion CLI or GUI route exposes live mode.
 

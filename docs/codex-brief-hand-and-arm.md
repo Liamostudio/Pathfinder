@@ -22,11 +22,11 @@ own files; update `PROGRESS.md` honestly in the same commit (tick nothing withou
    not installed and no servos are connected: import it lazily and test everything with a fake bus.
 2. Hard limits baked in: per-joint position limits, velocity cap, gripper force cap, max step per command,
    workspace box. Default is **dry-run (logs, never sends)**. Real motion needs an explicit
-   `--i-am-present` style flag plus an interactive confirmation that the 6V kill switch is in reach, and
+   `--i-am-present` style flag plus an interactive confirmation that the 5V kill switch is in reach, and
    refuses if not running in an interactive terminal (no remote/unattended driving, per CLAUDE.md).
 3. A `scripts/so101_check.py` read-only health check (ports, motor IDs, voltages, temperatures) that sends
    no motion commands. Document the motor-ID setup steps for Liam in `docs/so101-bringup.md` (set each
-   motor ID one at a time before assembly, 6V supply only, never above 7.4V).
+   motor ID one at a time before assembly, 5V supply only, never above 7.4V).
 4. Tests with the fake bus: limits clamp, dry-run sends nothing, refusal when not interactive, stop bypasses.
 
 Do not touch real hardware. Report what you could not verify.

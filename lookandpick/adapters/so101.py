@@ -73,9 +73,9 @@ def require_local_presence(i_am_present=False, *, stdin=None, stdout=None, confi
     environ = os.environ if environ is None else environ
     if not i_am_present or not stdin.isatty() or not stdout.isatty() or any(environ.get(k) for k in ('SSH_CONNECTION','SSH_CLIENT','SSH_TTY')):
         raise PermissionError('Live mode requires --i-am-present in a local interactive terminal')
-    prompt = 'With the 6V kill switch in reach, type exactly: 6V KILL SWITCH READY\n> '
+    prompt = 'With the 5V kill switch in reach, type exactly: 5V KILL SWITCH READY\n> '
     answer = (input if confirm is None else confirm)(prompt)
-    if answer != '6V KILL SWITCH READY':
+    if answer != '5V KILL SWITCH READY':
         raise PermissionError('Physical-presence confirmation failed')
 
 

@@ -28,7 +28,7 @@ class Tracker(Protocol):
 
 
 class Arm(Protocol):
-    """Sim arm first; the real SO-101 only with Liam present and the 6V kill switch in reach."""
+    """Sim arm first; the real SO-101 only with Liam present and the 5V kill switch in reach."""
 
     position: Vec3
 
