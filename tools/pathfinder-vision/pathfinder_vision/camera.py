@@ -1,0 +1,64 @@
+"""A webcam that always provides the newest frame (a background thread drops the backlog)."""
+from __future__ import annotations
+
+import threading
+import time
+
+
+class Camera:
+    def __init__(self, index: int, width: int, height: int, fps: int = 30, open_capture=None):
+        self.index, self.width, self.height, self.fps = index, width, height, fps
+        self._open = open_capture
+        self._lock = threading.Lock()
+        self._frame, self._stamp, self._seq, self.error = None, 0.0, 0, None
+        self._stop = threading.Event()
+        self._thread = None
+        self.name = f"camera {index}"
+
+    def _default_open(self):
+        import cv2  # noqa: PLC0415
+        cap = cv2.VideoCapture(self.index, cv2.CAP_V4L2)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+        cap.set(cv2.CAP_PROP_FPS, self.fps)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        return cap
+
+    def start(self) -> None:
+        cap = (self._open or self._default_open)()
+        if not cap.isOpened():
+            cap.release()
+            raise RuntimeError(f"Cannot open camera {self.index}")
+        self.name = _device_name(self.index)
+        self._thread = threading.Thread(target=self._grab, args=(cap,), daemon=True)
+        self._thread.start()
+
+    def _grab(self, cap) -> None:
+        try:
+            while not self._stop.is_set():
+                ok, frame = cap.read()
+                if not ok or frame is None:
+                    self.error = "camera stopped delivering frames"
+                    return
+                with self._lock:
+                    self._frame, self._stamp, self._seq = frame, time.monotonic(), self._seq + 1
+        finally:
+            cap.release()
+
+    def latest(self):
+        """(sequence number, capture time, frame) of the newest frame, or None before the first one."""
+        with self._lock:
+            return None if self._frame is None else (self._seq, self._stamp, self._frame)
+
+    def close(self) -> None:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=2)
+
+
+def _device_name(index: int) -> str:
+    try:
+        with open(f"/sys/class/video4linux/video{index}/name") as f:
+            return f.read().strip()
+    except OSError:
+        return f"camera {index}"

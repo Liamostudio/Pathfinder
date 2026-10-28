@@ -1,0 +1,12 @@
+[project]
+name = "pathfinder-vision"
+version = "0.1.0"
+description = "Standalone camera viewer that shows exactly what is running and what it detects: hands and people (MediaPipe, on the CPU)."
+requires-python = ">=3.11"
+dependencies = ["mediapipe>=1.1", "numpy"]
+
+[project.scripts]
+pathfinder-vision = "pathfinder_vision.app:main"
+
+[tool.setuptools]
+packages = ["pathfinder_vision"]
