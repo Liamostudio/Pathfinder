@@ -24,7 +24,7 @@ Recordings (the whole window, panel included, so the footage shows what was runn
 
 ## Cost
 
-Measured numbers appear live in the panel. People detection costs extra CPU on top of hands, so the people
+Measured numbers appear live in the panel. On the author's laptop (CPU only, 640x360, empty scene): hands about 18 ms per frame on their own; adding boxes costs about 28 ms and skeletons about 22 ms more (likely higher with a person in view). People detection costs extra CPU on top of hands, so the people
 detector runs every 2nd frame by default (`--people-every N`); its boxes or skeleton then update at half the
 camera rate while hands stay at full rate. USB 2 cameras are only fast at low resolution: 640x360 is the
 default for that reason.
