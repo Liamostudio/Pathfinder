@@ -1,0 +1,5 @@
+mujoco==3.17.0
+numpy>=2.3,<3
+Pillow>=12,<14
+pytest>=9,<10
+opencv-contrib-python>=4.10,<6

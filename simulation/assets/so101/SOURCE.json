@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/TheRobotStudio/SO-ARM100",
+  "commit": "a758567c3978dfeefe282ede0500085a48fe8f78",
+  "path": "Simulation/SO101",
+  "urdf": "so101_new_calib.urdf"
+}
