@@ -59,6 +59,18 @@ def calibrate_from_frames(frames, marker_mm: float, camera_matrix, dist=None, *,
     return cal
 
 
+def scaled_calibration(cal: TableCalibration, factor: float) -> TableCalibration:
+    """The same camera pose for frames resized by `factor` (e.g. 0.5 for 1280x720 -> 640x360).
+
+    Pose is resolution-independent; pixel intrinsics scale with the image and distortion is unchanged.
+    """
+    if not math.isfinite(factor) or factor <= 0:
+        raise ValueError("scale factor must be positive and finite")
+    k = cal.camera_matrix.copy()
+    k[:2] *= factor
+    return TableCalibration(k, cal.rvec, cal.tvec, cal.dist, cal.reprojection_px * factor)
+
+
 class TappedDetector:
     """Passes detections through unchanged, keeping the latest for the on-screen overlay."""
 
@@ -131,8 +143,20 @@ def summarise(records: list[dict], seconds: float) -> dict:
 def run_live(camera, detector: HandDetector, calibration: TableCalibration, arm, *, hand_height: float = 0.08,
              seconds: float | None = None, show=None, log_path: Path | None = None, hz: float = 30.0,
              timeout_ms: float = 150.0, patrol_points: tuple[Vec3, Vec3] = ((-0.15, 0.10, 0.05), (0.15, 0.10, 0.05)),
-             table_to_arm=None) -> dict:
+             table_to_arm=None, warmup_s: float = 10.0) -> dict:
     """Run until `seconds` elapse (or `show` returns False). Returns timing statistics. `show(state)` draws a frame."""
+    # Warm up before the watchdog starts its clock: a webcam can take seconds to deliver its first frame and
+    # the detector's first inference is slow, and neither should trip the (deliberately short) timeout.
+    camera.start()
+    deadline = time.monotonic() + warmup_s
+    latest = camera.latest()
+    while latest is None and time.monotonic() < deadline:
+        time.sleep(0.02)
+        latest = camera.latest()
+    if latest is None:
+        camera.close()
+        raise RuntimeError(f"camera produced no frame within {warmup_s:.0f} s")
+    detector.detect(latest[1], int(time.monotonic() * 1000))
     tapped = TappedDetector(detector)
     patrol = Patrol(arm, *patrol_points)
     monitor = TimedMonitor(WorldState(), Safety(), arm, lambda: (arm.position, patrol.goal), timeout_s=timeout_ms / 1000)
@@ -204,8 +228,10 @@ def make_arm(kind: str):
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--cam", type=int, default=0)
-    p.add_argument("--width", type=int, default=1280)
-    p.add_argument("--height", type=int, default=720)
+    p.add_argument("--width", type=int, default=640, help="run resolution (USB 2 cameras are fast only at low resolution)")
+    p.add_argument("--height", type=int, default=360)
+    p.add_argument("--calib-width", type=int, default=640, help="resolution for the one-off marker calibration (and --intrinsics)")
+    p.add_argument("--calib-height", type=int, default=360)
     p.add_argument("--model", type=Path, required=True, help="MediaPipe hand_landmarker.task")
     p.add_argument("--marker-mm", type=float, required=True)
     p.add_argument("--marker-id", type=int, default=0)
@@ -220,23 +246,28 @@ def main() -> None:
     a = p.parse_args()
 
     from .adapters.hands import MediaPipeHandDetector
-    camera = LatestFrameCamera(a.cam, f"cam{a.cam}", a.width, a.height)
+    if a.width * a.calib_height != a.height * a.calib_width:
+        raise SystemExit("run and calibration resolutions must have the same aspect ratio")
     lens = Intrinsics.load(a.intrinsics) if a.intrinsics else None
-    if lens is not None and lens.size != (a.width, a.height):
-        raise SystemExit(f"{a.intrinsics} was calibrated at {lens.size[0]}x{lens.size[1]}; use --width/--height to match")
-    k, dist = (lens.camera_matrix, lens.dist) if lens else (guess_intrinsics(a.width, a.height, a.hfov), None)
+    if lens is not None and lens.size != (a.calib_width, a.calib_height):
+        raise SystemExit(f"{a.intrinsics} was calibrated at {lens.size[0]}x{lens.size[1]}; use --calib-width/--calib-height to match")
+    k, dist = (lens.camera_matrix, lens.dist) if lens else (guess_intrinsics(a.calib_width, a.calib_height, a.hfov), None)
+    calib_camera = LatestFrameCamera(a.cam, f"cam{a.cam}", a.calib_width, a.calib_height, stall_s=6)
     if lens is None:
         print("WARNING: lens not calibrated; hand positions are only roughly right (run scripts/calibrate_lens.py).", flush=True)
     print("Calibrating from the marker (keep your hands out of view for a moment)...", flush=True)
-    frames = camera.frames()
+    frames = calib_camera.frames()
     try:
-        calibration = calibrate_from_frames(frames, a.marker_mm, k, dist, marker_id=a.marker_id)
+        calibration = calibrate_from_frames(frames, a.marker_mm, k, dist, marker_id=a.marker_id, want=8, max_frames=60)
     except CalibrationError as e:
-        camera.close()
         raise SystemExit(f"Calibration failed: {e}")
     finally:
         frames.close()
-    print(f"Calibrated: reprojection {calibration.reprojection_px:.2f} px, camera at {np.round(calibration.camera_position() * 100, 1)} cm", flush=True)
+        calib_camera.close()
+    print(f"Calibrated at {a.calib_width}x{a.calib_height}: reprojection {calibration.reprojection_px:.2f} px, "
+          f"camera at {np.round(calibration.camera_position() * 100, 1)} cm; running at {a.width}x{a.height}", flush=True)
+    calibration = scaled_calibration(calibration, a.width / a.calib_width)
+    camera = LatestFrameCamera(a.cam, f"cam{a.cam}", a.width, a.height)
 
     show = None
     if not a.no_window:

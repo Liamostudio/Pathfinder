@@ -13,7 +13,7 @@ from lookandpick.adapters.base import PixelHand  # noqa: E402
 from lookandpick.adapters.fake import SimArm  # noqa: E402
 from lookandpick.adapters.hands import FakeHandDetector  # noqa: E402
 from lookandpick.adapters.live_camera import LatestFrameCamera  # noqa: E402
-from lookandpick.live_hands import CalibrationError, calibrate_from_frames, run_live  # noqa: E402
+from lookandpick.live_hands import CalibrationError, calibrate_from_frames, run_live, scaled_calibration  # noqa: E402
 from test_calibration import CAM_A, K, MARKER_M, render  # noqa: E402
 
 FRAME = render(CAM_A)[0]
@@ -141,3 +141,24 @@ def test_camera_stall_fails_safe_and_halts_the_arm():
     cam, _ = camera(period=0.02, hang_after=15, stall_s=0.15)
     summary, arm = run(lambda cal: [], cam=cam, seconds=2.0)
     assert summary["stopped"] and "stalled" in summary["final_reason"] and arm.halted
+
+
+def test_scaled_calibration_maps_resized_pixels_to_the_same_table_point():
+    cal = calibrate_from_frames(frames_of(FRAME), MARKER_M * 1000, K)
+    half = scaled_calibration(cal, 0.5)
+    for xy in [(0.0, 0.0), (0.12, 0.08), (-0.2, 0.15)]:
+        px = cal.table_to_pixel(xy)
+        assert np.allclose(half.table_to_pixel(xy), px * 0.5, atol=1e-6)
+        assert np.linalg.norm(half.pixel_to_table(px * 0.5) - np.array(xy)) < 1e-6
+    with pytest.raises(ValueError):
+        scaled_calibration(cal, 0)
+
+
+def test_unlocalisable_hand_stops_the_arm_without_latching():
+    from lookandpick.adapters.hands import project_hands
+    cal = calibrate_from_frames(frames_of(FRAME), MARKER_M * 1000, K)
+    sky = PixelHand("h", ((640.0, -4000.0),))  # ray above the horizon never meets the table
+    hands = project_hands([sky], cal, hand_height=0.08)
+    assert hands[0].radius_m >= 1.0
+    summary, arm = run(lambda c: [sky], seconds=0.8)
+    assert summary["min_scale"] == 0.0 and "error" not in summary["final_reason"]

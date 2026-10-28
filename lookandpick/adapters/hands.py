@@ -14,11 +14,17 @@ class TableProjector(Protocol):
 
 
 def project_hands(detections: list[PixelHand], calibration: TableProjector, *,
-                  hand_height: float, uncertainty_m: float = 0.03, table_to_arm=None) -> list[Hand]:
+                  hand_height: float, uncertainty_m: float = 0.03, table_to_arm=None,
+                  unlocalisable_radius_m: float = 2.0) -> list[Hand]:
     """Enclose projected landmarks in a sphere plus a configured uncertainty margin.
 
     The height is an explicit assumption. MediaPipe's wrist-relative z is NOT table depth.
     This does not establish an adequate uncertainty bound for real hardware.
+
+    A landmark whose viewing ray never meets the table plane at that height (a hand raised above it, or
+    very near the camera) cannot be localised. It is then treated as a hand that could be anywhere: a large
+    envelope (`unlocalisable_radius_m`) that stops the arm while it is visible, instead of raising and
+    latching a permanent stop.
     """
     if not math.isfinite(hand_height) or hand_height < 0:
         raise ValueError('Hand height must be finite and nonnegative')
@@ -28,11 +34,15 @@ def project_hands(detections: list[PixelHand], calibration: TableProjector, *,
     for detection in detections:
         if not detection.pixels:
             raise ValueError('A hand must have landmarks')
-        positions = []
+        positions, unlocalised = [], False
         for pixel in detection.pixels:
             if len(pixel) != 2 or not all(math.isfinite(v) for v in pixel):
                 raise ValueError('Invalid hand landmark')
-            xy = calibration.pixel_to_table(pixel, z=hand_height)
+            try:
+                xy = calibration.pixel_to_table(pixel, z=hand_height)
+            except ValueError:
+                unlocalised = True  # ray misses the plane at this height; handled below, not an error
+                break
             if len(xy) != 2 or not all(math.isfinite(v) for v in xy):
                 raise ValueError('Invalid projected hand position')
             point = (float(xy[0]), float(xy[1]), hand_height)
@@ -41,6 +51,9 @@ def project_hands(detections: list[PixelHand], calibration: TableProjector, *,
             if len(point) != 3 or not all(math.isfinite(v) for v in point):
                 raise ValueError('Invalid table-to-arm transform')
             positions.append(point)
+        if unlocalised:
+            hands.append(Hand(detection.id, (0.0, 0.0, hand_height), unlocalisable_radius_m))
+            continue
         centre = tuple(sum(p[i] for p in positions) / len(positions) for i in range(3))
         radius = max(math.dist(centre, p) for p in positions) + uncertainty_m
         hands.append(Hand(detection.id, centre, radius))
