@@ -67,6 +67,19 @@ def test_camera_stall_raises():
     cam.close()
 
 
+def test_slow_first_frame_is_tolerated_but_later_stalls_are_not():
+    class SlowStart(FakeCapture):
+        def read(self):
+            if self.n == 0:
+                time.sleep(0.4)
+            return super().read()
+
+    cap = SlowStart(period=0.01)
+    cam = LatestFrameCamera(0, "fake", stall_s=0.2, first_frame_s=2.0, open_capture=lambda: cap)
+    assert next(iter(cam.frames()))[1] is not None
+    cam.close()
+
+
 def test_camera_failure_raises():
     cam, _ = camera(period=0.005, fail_after=3)
     with pytest.raises(RuntimeError, match="stopped delivering"):

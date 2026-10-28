@@ -24,8 +24,8 @@ def _open_v4l2(index: int, width: int, height: int, fps: int):
 
 class LatestFrameCamera:
     def __init__(self, index: int, name: str = "camera", width: int = 1280, height: int = 720, fps: int = 30,
-                 stall_s: float = 0.5, open_capture: Callable | None = None) -> None:
-        self.name, self.stall_s = name, stall_s
+                 stall_s: float = 0.5, first_frame_s: float = 8.0, open_capture: Callable | None = None) -> None:
+        self.name, self.stall_s, self.first_frame_s = name, stall_s, first_frame_s
         self._open = open_capture or (lambda: _open_v4l2(index, width, height, fps))
         self._cond = threading.Condition()
         self._frame, self._stamp, self._seq, self._error = None, 0.0, 0, None
@@ -69,9 +69,11 @@ class LatestFrameCamera:
         self.start()
         seen = 0
         while not self._stop.is_set():
+            # Webcams can take seconds to deliver the first frame after being plugged in; only then enforce stall_s.
+            wait = self.first_frame_s if seen == 0 else self.stall_s
             with self._cond:
-                if not self._cond.wait_for(lambda: self._seq != seen or self._error or self._stop.is_set(), self.stall_s):
-                    raise RuntimeError(f"camera {self.name} stalled (no frame for {self.stall_s:.2f} s)")
+                if not self._cond.wait_for(lambda: self._seq != seen or self._error or self._stop.is_set(), wait):
+                    raise RuntimeError(f"camera {self.name} stalled (no frame for {wait:.2f} s)")
                 if self._error:
                     raise RuntimeError(self._error)
                 if self._stop.is_set():
