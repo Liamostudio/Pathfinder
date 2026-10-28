@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 from . import __version__
-from .camera import Camera, list_cameras
+from .camera import Camera, first_free_camera, in_use, list_cameras
 from .models import MODELS, default_models_dir, download, model_path
 
 
@@ -22,7 +22,8 @@ def build_factories(models_dir: Path):
 
 def main(argv=None) -> None:
     p = argparse.ArgumentParser(prog="pathfinder-vision", description=__doc__)
-    p.add_argument("--camera", type=int, default=0, help="camera number (/dev/videoN)")
+    p.add_argument("--camera", type=int, default=None,
+                   help="camera number (/dev/videoN); default: the first camera nobody else is using")
     p.add_argument("--width", type=int, default=640)
     p.add_argument("--height", type=int, default=360)
     p.add_argument("--people", choices=("off", "boxes", "skeletons"), default="off", help="start with people detection on")
@@ -41,7 +42,7 @@ def main(argv=None) -> None:
     if a.list_cameras:
         cameras = list_cameras()
         for number, name in cameras:
-            print(f"--camera {number}   {name}")
+            print(f"--camera {number}   {name}" + ("   (in use by another program)" if in_use(number) else ""))
         if not cameras:
             print("No cameras found.")
         return
@@ -60,6 +61,11 @@ def main(argv=None) -> None:
     from . import ui
     import cv2
 
+    if a.camera is None:
+        a.camera = first_free_camera()
+        if a.camera is None:
+            raise SystemExit("No cameras found. Plug one in, then run: pathfinder-vision --list-cameras")
+        print(f"Using camera {a.camera} (the first one not in use).", flush=True)
     camera = Camera(a.camera, a.width, a.height)
     print(f"Opening camera {a.camera} at {a.width}x{a.height} ...", flush=True)
     camera.start()
@@ -68,19 +74,27 @@ def main(argv=None) -> None:
         time.sleep(0.05)
     if camera.latest() is None:
         camera.close()
-        raise SystemExit(camera.error or "No frame from the camera within 15 seconds.")
+        busy = " Another program (perhaps another Pathfinder Vision window) is already using it." if in_use(a.camera) else ""
+        raise SystemExit(f"Camera {a.camera}: {camera.error or 'no frame within 15 seconds'}.{busy} "
+                         "Try another with --camera N (see --list-cameras).")
     window = "Pathfinder Vision"  # the panel names the camera, which can change from the dropdown
     pipeline = Pipeline(camera, build_factories(a.models_dir), a.people_every)
     pipeline.hands_on = not a.no_hands
     pipeline.people_mode = {"off": "off", "boxes": "person-box", "skeletons": "person-skeleton"}[a.people]
     pipeline.start()
     recorder = Recorder(a.out_dir, tag=f"cam{a.camera}")
-    dd = {"open": False, "items": list_cameras(), "selected": a.camera, "status": ""}
+    def choices():
+        return [(n, name + (" (in use)" if in_use(n) else "")) for n, name in list_cameras()]
+
+    dd = {"open": False, "items": choices(), "selected": a.camera, "status": ""}
     holder = {"camera": camera}
 
     def switch_camera(number: int) -> None:
         """Open another camera in the background (the UI stays live), then hand it to the pipeline."""
         if number == dd["selected"]:
+            return
+        if in_use(number):
+            dd["status"] = f"camera {number} is in use by another program"
             return
         dd["status"] = f"opening camera {number} ..."
 
@@ -115,7 +129,7 @@ def main(argv=None) -> None:
                     switch_camera(number)
             dd["open"] = False
         elif ui.inside(geo["box"], x, y):
-            dd["items"] = list_cameras()  # refresh, so a camera plugged in a moment ago appears
+            dd["items"] = choices()  # refresh, so a camera plugged in a moment ago appears
             dd["open"] = True
 
     def current():

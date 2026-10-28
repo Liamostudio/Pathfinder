@@ -185,3 +185,16 @@ def test_list_cameras_keeps_only_the_first_node_of_each_device(tmp_path):
         (d / "index").write_text(idx)
         (d / "name").write_text(name)
     assert list_cameras(str(tmp_path)) == [(0, "Built-in"), (2, "Ace Pro")]
+
+
+def test_in_use_sees_other_processes_holding_the_device(tmp_path):
+    import os
+    from pathfinder_vision.camera import first_free_camera, in_use
+    other = tmp_path / "4242" / "fd"
+    other.mkdir(parents=True)
+    os.symlink("/dev/video0", other / "3")
+    mine = tmp_path / str(os.getpid()) / "fd"
+    mine.mkdir(parents=True)
+    os.symlink("/dev/video2", mine / "5")  # our own handle never counts as someone else using it
+    assert in_use(0, str(tmp_path)) and not in_use(2, str(tmp_path))
+    assert first_free_camera([(0, "a"), (2, "b")]) in (0, 2)  # real /proc; just must not crash

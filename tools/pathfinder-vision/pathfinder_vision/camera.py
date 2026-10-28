@@ -70,6 +70,32 @@ def list_cameras(base: str = "/sys/class/video4linux") -> list[tuple[int, str]]:
     return found
 
 
+def in_use(index: int, proc: str = "/proc") -> bool:
+    """True if another process of this user has /dev/videoN open (a second viewer could not stream from it)."""
+    import os  # noqa: PLC0415
+    from pathlib import Path  # noqa: PLC0415
+    target, me = f"/dev/video{index}", str(os.getpid())
+    for fd_dir in Path(proc).glob("[0-9]*/fd"):
+        if fd_dir.parent.name == me:
+            continue
+        try:
+            for fd in fd_dir.iterdir():
+                if os.readlink(fd) == target:
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def first_free_camera(cameras=None) -> int | None:
+    """The first listed camera nobody else is using; the first camera if all are busy; None if there are none."""
+    cameras = list_cameras() if cameras is None else cameras
+    for number, _ in cameras:
+        if not in_use(number):
+            return number
+    return cameras[0][0] if cameras else None
+
+
 def _device_name(index: int) -> str:
     try:
         with open(f"/sys/class/video4linux/video{index}/name") as f:
