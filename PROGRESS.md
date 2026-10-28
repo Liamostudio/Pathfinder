@@ -25,6 +25,8 @@ A box is ticked only when its acceptance test has passed, with how it was tested
 
 ## Working on now
 
+- **Plan for 28 Oct:** `docs/plan-2026-10-28.md` (tracks for Liam, Claude and Codex; Codex brief in `docs/codex-brief-sim-props-and-deck.md`). Meta API facts (OpenAI-compatible endpoint, Voice Transcribe file upload, open-weights Glimmer) in `docs/model-access.md`.
+
 - Machine and model setup is done: driver, Python env, SAM 3.1 on the 5070, LeRobot in a scratch venv. Arm servos delayed (hoped for 28 Oct, cut-off 30 Oct); build starts when they arrive, otherwise sim arm first.
 - Deck mission control is built; the next connection is timestamped hand observations/model events. The hand watchdog and SO-101 dry-run work are documented in `docs/hand-safety.md` and `docs/so101-bringup.md`.
 - Next: use the printed marker panel with `scripts/check_calibration.py` (marker is printed; 120 mm); `sudo usermod -aG dialout $USER` (Liam), then print the marker and checkerboard (`markers/`, 100% scale), run `scripts/calibrate_lens.py --cam 2 --name ace-pro`, then `scripts/check_calibration.py --intrinsics calibration/ace-pro.json`; test the selected MediaPipe detector on representative recorded moving hands and then the calibrated live-camera feed.
