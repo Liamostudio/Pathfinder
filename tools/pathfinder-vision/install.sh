@@ -4,6 +4,7 @@
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 venv="${PATHFINDER_VISION_VENV:-$HOME/.local/share/pathfinder-vision/venv}"
+export PIP_DEFAULT_TIMEOUT="${PIP_DEFAULT_TIMEOUT:-60}" PIP_RETRIES="${PIP_RETRIES:-10}"  # tolerate a flaky connection
 
 echo "Creating the environment in $venv"
 python3 -m venv "$venv"
