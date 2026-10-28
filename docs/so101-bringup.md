@@ -4,6 +4,16 @@ No real hardware was connected or commanded during this implementation. LeRobot 
 installed; wrapper and health behaviour were tested with fake buses. The current GUI still
 uses `SimArm` exclusively.
 
+## Tonight's checklist (read this first)
+
+1. **Do not use the `lerobot-setup-motors`, `lerobot-calibrate` or `lerobot-teleoperate` commands on this machine.** They crash on Python 3.14 (`TypeError: str | None is not callable`, from LeRobot's argument parser). Use `scripts/so101_setup.py` instead, run with the LeRobot environment: `~/src/lerobot-venv/bin/python scripts/so101_setup.py ...`. It makes the same two method calls LeRobot's scripts make, with the same prompts.
+2. Multimeter: ~5V at the adapter terminals **before** the URT board is connected. Confirm in the SO-101 / LeRobot guide that 5V is the right supply for the 7.4V (1:345) motors and that the URT board accepts it.
+3. Plug the URT board in with **no motors connected**: `~/src/lerobot-venv/bin/python scripts/so101_setup.py find-ports` should list one new `/dev/ttyACM*`.
+4. One motor at a time, in the order the script prompts: `setup-motors` (below). Label each motor with its ID as you go.
+5. Assemble. Then `calibrate`, then `python scripts/so101_check.py --port ...` (read-only voltage/temperature/ID check).
+6. **Stop there for tonight.** Moving the arm to a Cartesian target needs FK/IK for the real arm, which does not exist yet (see "Adapter boundaries"). Only the sim has IK. The first real motion should be a few degrees on one joint, slowly, with the kill switch in hand.
+7. Keep a hand on the kill switch whenever torque is on. Halt disables torque, so support the arm.
+
 ## Power and motor IDs
 
 Use this project's **5V 10A supply only (5.5 x 2.1 mm, centre-positive); never exceed 7.4V**. Read ~5V with a multimeter at the adapter terminals before connecting the URT board. Liam must be physically present,
@@ -28,14 +38,17 @@ Follow the [official SO-101 setup](https://huggingface.co/docs/lerobot/so101) to
 port and assign IDs/baud rates. For the follower, its setup command is:
 
 ```sh
-lerobot-setup-motors --robot.type=so101_follower \
-  --robot.port=/dev/ttyACM0 --robot.id=lookandpick
+~/src/lerobot-venv/bin/python scripts/so101_setup.py setup-motors --port /dev/ttyACM0
 ```
 
 Replace the example port with the actual board port. Follow the prompts, exchanging the
 single connected motor as instructed. This command writes motor configuration; it is not
 the read-only health check below and was not run by Codex. Label motors, then assemble and
-perform LeRobot's manual range calibration with Liam present before considering motion.
+perform LeRobot's manual range calibration with Liam present before considering motion:
+
+```sh
+~/src/lerobot-venv/bin/python scripts/so101_setup.py calibrate --port /dev/ttyACM0
+```
 
 ## Read-only health
 
