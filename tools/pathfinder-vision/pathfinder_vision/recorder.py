@@ -6,8 +6,8 @@ from pathlib import Path
 
 
 class Recorder:
-    def __init__(self, out_dir: Path, fps: float = 30.0, clock=time.monotonic) -> None:
-        self.out_dir, self.fps, self.clock = Path(out_dir), fps, clock
+    def __init__(self, out_dir: Path, fps: float = 30.0, clock=time.monotonic, tag: str = "") -> None:
+        self.out_dir, self.fps, self.clock, self.tag = Path(out_dir), fps, clock, tag
         self._writer = None
         self._start = 0.0
         self.written = 0
@@ -24,7 +24,8 @@ class Recorder:
     def start(self, size: tuple[int, int]) -> Path:
         import cv2  # noqa: PLC0415
         self.out_dir.mkdir(parents=True, exist_ok=True)
-        self.path = self.out_dir / f"pathfinder-vision-{time.strftime('%Y%m%d-%H%M%S')}.mp4"
+        name = "-".join(x for x in ("pathfinder-vision", self.tag, time.strftime("%Y%m%d-%H%M%S")) if x)
+        self.path = self.out_dir / f"{name}.mp4"
         writer = cv2.VideoWriter(str(self.path), cv2.VideoWriter_fourcc(*"mp4v"), self.fps, size)
         if not writer.isOpened():
             raise RuntimeError(f"cannot write {self.path}")

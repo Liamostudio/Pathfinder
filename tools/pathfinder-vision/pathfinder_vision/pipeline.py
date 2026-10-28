@@ -20,6 +20,7 @@ class Pipeline(threading.Thread):
         self.hands_on, self.people_mode = True, "off"
         self._detectors, self._errors, self._last, self._ms, self._count = {}, {}, {}, {}, {}
         self._stop = threading.Event()
+        self._pending_camera = None
         self._lock = threading.Lock()
         self._published = None
         self._times: list[float] = []
@@ -31,6 +32,10 @@ class Pipeline(threading.Thread):
 
     def cycle_people(self) -> None:
         self.people_mode = PEOPLE_MODES[(PEOPLE_MODES.index(self.people_mode) + 1) % len(PEOPLE_MODES)]
+
+    def set_camera(self, camera) -> None:
+        """Switch to another (already running) camera; the old one is closed and the detectors start afresh."""
+        self._pending_camera = camera
 
     def close(self) -> None:
         self._stop.set()
@@ -55,6 +60,15 @@ class Pipeline(threading.Thread):
     def run(self) -> None:
         last_seq, n = 0, 0
         while not self._stop.is_set():
+            if self._pending_camera is not None:
+                old, self.camera, self._pending_camera = self.camera, self._pending_camera, None
+                for d in self._detectors.values():
+                    d.close()
+                self._detectors, self._errors, self._last, self._ms, self._count = {}, {}, {}, {}, {}
+                last_seq, n = 0, 0
+                with self._lock:
+                    self._published = None
+                old.close()
             item = self.camera.latest()
             if item is None or item[0] == last_seq:
                 time.sleep(0.002)

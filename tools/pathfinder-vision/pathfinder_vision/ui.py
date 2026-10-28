@@ -63,6 +63,21 @@ def panel_lines(state: dict) -> list[tuple[str, tuple, float]]:
     return lines
 
 
+DD_TOP, DD_H, ITEM_H = 48, 30, 28
+
+
+def dropdown_geometry(view_w: int, panel_w: int, n_items: int) -> dict:
+    """Rectangles (x0, y0, x1, y1) of the webcam dropdown box and, when open, its items. Shared with the mouse handler."""
+    x0, x1 = view_w + 16, view_w + panel_w - 16
+    box = (x0, DD_TOP, x1, DD_TOP + DD_H)
+    items = [(x0, DD_TOP + DD_H + i * ITEM_H, x1, DD_TOP + DD_H + (i + 1) * ITEM_H) for i in range(n_items)]
+    return {"box": box, "items": items}
+
+
+def inside(rect, x: int, y: int) -> bool:
+    return rect[0] <= x < rect[2] and rect[1] <= y < rect[3]
+
+
 def render(cv2, frame, detections, state: dict, view_w: int = 1024, panel_w: int = 480):
     """The full window: camera view on the left, panel on the right. Returns a BGR image."""
     h, w = frame.shape[:2]
@@ -79,11 +94,28 @@ def render(cv2, frame, detections, state: dict, view_w: int = 1024, panel_w: int
     height = max(view_h, 520)
     canvas = np.full((height, view_w + panel_w, 3), PANEL_BG, np.uint8)
     canvas[:view_h, :view_w] = view
-    y = 34
-    for text, col, scale in panel_lines(state):
+    lines = panel_lines(state)
+    _text(cv2, canvas, lines[0][0], view_w + 16, 34, lines[0][2], lines[0][1], 2)
+    dd = state.get("dropdown") or {"open": False, "items": [], "selected": None, "status": ""}
+    geo = dropdown_geometry(view_w, panel_w, len(dd["items"]))
+    y = DD_TOP + DD_H + 26
+    for text, col, scale in lines[1:]:
         if text:
-            _text(cv2, canvas, text, view_w + 16, y, scale, col, 2 if scale >= 0.8 else 1)
+            _text(cv2, canvas, text, view_w + 16, y, scale, col, 1)
         y += int(14 + 22 * scale)
-    _text(cv2, canvas, "H hands   P people (off/boxes/skeletons)   R record   S screenshot   Q quit",
+    bx0, by0, bx1, by1 = geo["box"]
+    cv2.rectangle(canvas, (bx0, by0), (bx1, by1), (60, 60, 64), -1)
+    cv2.rectangle(canvas, (bx0, by0), (bx1, by1), (120, 120, 126), 1)
+    current = next((n for i, n in dd["items"] if i == dd["selected"]), None) or state["camera"]["name"]
+    _text(cv2, canvas, f"Webcam {dd['selected'] if dd['selected'] is not None else ''}: {current}"[:46], bx0 + 8, by1 - 9, 0.5, TEXT)
+    _text(cv2, canvas, "v", bx1 - 18, by1 - 9, 0.5, TEXT)
+    if dd.get("status"):
+        _text(cv2, canvas, dd["status"], bx0, by1 + 18, 0.45, (80, 160, 255))
+    if dd["open"]:
+        for (i, name), r in zip(dd["items"], geo["items"]):
+            cv2.rectangle(canvas, (r[0], r[1]), (r[2], r[3]), (45, 45, 50) if i != dd["selected"] else (70, 90, 60), -1)
+            cv2.rectangle(canvas, (r[0], r[1]), (r[2], r[3]), (120, 120, 126), 1)
+            _text(cv2, canvas, f"{i}: {name}"[:50], r[0] + 8, r[3] - 9, 0.5, TEXT)
+    _text(cv2, canvas, "H hands  P people  C next webcam  R record  S screenshot  Q quit",
           view_w + 16, height - 14, 0.42, DIM)
     return canvas

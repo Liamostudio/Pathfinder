@@ -56,6 +56,20 @@ class Camera:
             self._thread.join(timeout=2)
 
 
+def list_cameras(base: str = "/sys/class/video4linux") -> list[tuple[int, str]]:
+    """(number, name) of each real camera. A device exposes several /dev/video nodes; only the first captures."""
+    from pathlib import Path  # noqa: PLC0415
+    root, found = Path(base), []
+    if root.is_dir():
+        for node in sorted(root.glob("video*"), key=lambda q: int(q.name[5:])):
+            try:
+                if (node / "index").read_text().strip() == "0":
+                    found.append((int(node.name[5:]), (node / "name").read_text().strip()))
+            except (OSError, ValueError):
+                pass
+    return found
+
+
 def _device_name(index: int) -> str:
     try:
         with open(f"/sys/class/video4linux/video{index}/name") as f:

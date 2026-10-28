@@ -132,3 +132,56 @@ def test_recorder_keeps_real_time_with_uneven_frames(tmp_path):
     cap = cv2.VideoCapture(str(path))
     assert cap.get(cv2.CAP_PROP_FRAME_COUNT) >= 10
     cap.release()
+
+
+def test_dropdown_geometry_and_hit_testing():
+    geo = ui.dropdown_geometry(1024, 480, 3)
+    assert len(geo["items"]) == 3
+    bx0, by0, bx1, by1 = geo["box"]
+    assert ui.inside(geo["box"], bx0 + 5, by0 + 5) and not ui.inside(geo["box"], bx1, by1)
+    first, second = geo["items"][0], geo["items"][1]
+    assert first[3] == second[1] and first[1] == by1  # items stack directly under the box
+
+
+def test_render_shows_the_dropdown_and_its_choices():
+    state = {"camera": {"name": "Insta360 Ace Pro", "width": 640, "height": 360}, "fps": 30.0, "pipeline_ms": 20.0,
+             "detectors": [], "detections": [], "recording": None,
+             "dropdown": {"open": True, "items": [(0, "Integrated Camera"), (2, "Insta360 Ace Pro")], "selected": 2, "status": ""}}
+    closed = dict(state, dropdown=dict(state["dropdown"], open=False))
+    a = ui.render(cv2, FRAME, [], state, view_w=800, panel_w=480)
+    b = ui.render(cv2, FRAME, [], closed, view_w=800, panel_w=480)
+    geo = ui.dropdown_geometry(800, 480, 2)["items"][0]
+    assert (a[geo[1]:geo[3], geo[0]:geo[2]] != b[geo[1]:geo[3], geo[0]:geo[2]]).any()
+
+
+def test_pipeline_switches_camera_and_starts_detectors_afresh():
+    class Cam(FakeCamera):
+        closed = False
+
+        def __init__(self, tag):
+            self.tag = tag
+
+        def close(self):
+            self.closed = True
+
+    first, second = Cam("a"), Cam("b")
+    det = FakeDetector("hand", 1)
+    made = []
+    pipe = Pipeline(first, {"hands": lambda: made.append(1) or det}, people_every=2)
+    pipe.start()
+    wait_snapshot(pipe)
+    pipe.set_camera(second)
+    time.sleep(0.4)
+    snap = wait_snapshot(pipe)
+    pipe.close()
+    assert first.closed and pipe.camera is second and len(made) == 2 and snap[1]
+
+
+def test_list_cameras_keeps_only_the_first_node_of_each_device(tmp_path):
+    from pathfinder_vision.camera import list_cameras
+    for n, (idx, name) in enumerate([("0", "Built-in"), ("1", "Built-in"), ("0", "Ace Pro"), ("1", "Ace Pro")]):
+        d = tmp_path / f"video{n}"
+        d.mkdir()
+        (d / "index").write_text(idx)
+        (d / "name").write_text(name)
+    assert list_cameras(str(tmp_path)) == [(0, "Built-in"), (2, "Ace Pro")]

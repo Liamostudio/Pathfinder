@@ -4,10 +4,12 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
 from . import __version__
+from .camera import Camera, list_cameras
 from .models import MODELS, default_models_dir, download, model_path
 
 
@@ -37,16 +39,10 @@ def main(argv=None) -> None:
     a = p.parse_args(argv)
 
     if a.list_cameras:
-        base = Path("/sys/class/video4linux")
-        found = False
-        for node in sorted(base.glob("video*"), key=lambda q: int(q.name[5:])) if base.is_dir() else []:
-            try:
-                if (node / "index").read_text().strip() == "0":  # first node of a device; the rest are metadata
-                    print(f"--camera {node.name[5:]}   {(node / 'name').read_text().strip()}")
-                    found = True
-            except OSError:
-                pass
-        if not found:
+        cameras = list_cameras()
+        for number, name in cameras:
+            print(f"--camera {number}   {name}")
+        if not cameras:
             print("No cameras found.")
         return
 
@@ -59,7 +55,6 @@ def main(argv=None) -> None:
 
     if sys.platform.startswith("linux"):
         os.environ.setdefault("QT_QPA_PLATFORM", "xcb")  # OpenCV's window under Wayland needs XWayland
-    from .camera import Camera
     from .pipeline import Pipeline
     from .recorder import Recorder
     from . import ui
@@ -74,27 +69,69 @@ def main(argv=None) -> None:
     if camera.latest() is None:
         camera.close()
         raise SystemExit(camera.error or "No frame from the camera within 15 seconds.")
+    window = "Pathfinder Vision"  # the panel names the camera, which can change from the dropdown
     pipeline = Pipeline(camera, build_factories(a.models_dir), a.people_every)
     pipeline.hands_on = not a.no_hands
     pipeline.people_mode = {"off": "off", "boxes": "person-box", "skeletons": "person-skeleton"}[a.people]
     pipeline.start()
-    recorder = Recorder(a.out_dir)
-    frames = camera.latest()[2].shape
-    cam_info = {"name": camera.name, "width": frames[1], "height": frames[0]}
+    recorder = Recorder(a.out_dir, tag=f"cam{a.camera}")
+    dd = {"open": False, "items": list_cameras(), "selected": a.camera, "status": ""}
+    holder = {"camera": camera}
+
+    def switch_camera(number: int) -> None:
+        """Open another camera in the background (the UI stays live), then hand it to the pipeline."""
+        if number == dd["selected"]:
+            return
+        dd["status"] = f"opening camera {number} ..."
+
+        def work():
+            new = Camera(number, a.width, a.height)
+            try:
+                new.start()
+                end = time.monotonic() + 15
+                while new.latest() is None and time.monotonic() < end and new.error is None:
+                    time.sleep(0.05)
+                if new.latest() is None:
+                    raise RuntimeError(new.error or "no frame within 15 s")
+            except Exception as e:  # noqa: BLE001
+                new.close()
+                dd["status"] = f"camera {number}: {e}"
+                return
+            if recorder.active:
+                print(f"Saved {recorder.stop()} (camera changed)")
+            pipeline.set_camera(new)
+            holder["camera"] = new
+            dd["selected"], dd["status"] = number, ""
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def on_mouse(event, x, y, flags, param):
+        if event != cv2.EVENT_LBUTTONDOWN:
+            return
+        geo = ui.dropdown_geometry(a.view_width, 480, len(dd["items"]))
+        if dd["open"]:
+            for (number, _), rect in zip(dd["items"], geo["items"]):
+                if ui.inside(rect, x, y):
+                    switch_camera(number)
+            dd["open"] = False
+        elif ui.inside(geo["box"], x, y):
+            dd["items"] = list_cameras()  # refresh, so a camera plugged in a moment ago appears
+            dd["open"] = True
 
     def current():
         snap = pipeline.snapshot()
         if snap is None:
             return None
         frame, detections, rows, fps, pipeline_ms = snap
-        state = {"camera": cam_info, "fps": fps, "pipeline_ms": pipeline_ms, "detectors": rows, "detections": detections,
+        cam_info = {"name": holder["camera"].name, "width": frame.shape[1], "height": frame.shape[0]}
+        state = {"camera": cam_info, "dropdown": dd, "fps": fps, "pipeline_ms": pipeline_ms, "detectors": rows, "detections": detections,
                  "recording": recorder.elapsed() if recorder.active else None}
         return ui.render(cv2, frame, detections, state, a.view_width), state
 
     try:
         if a.no_window:
             t0 = time.monotonic()
-            counts = {"hands": 0, "person": 0}
+            counts = {"hand": 0, "person": 0}
             samples = 0
             while time.monotonic() - t0 < a.seconds:
                 got = current()
@@ -110,20 +147,25 @@ def main(argv=None) -> None:
                           + (f"  [{row['note']}]" if row["note"] else ""))
                 print(f"fps {got[1]['fps']:.1f}, pipeline {got[1]['pipeline_ms']:.0f} ms/frame")
             return
-        cv2.namedWindow("Pathfinder Vision", cv2.WINDOW_AUTOSIZE)
+        cv2.namedWindow(window, cv2.WINDOW_AUTOSIZE)
+        cv2.setMouseCallback(window, on_mouse)
         while True:
             got = current()
             if got:
                 image, _ = got
-                cv2.imshow("Pathfinder Vision", image)
+                cv2.imshow(window, image)
                 recorder.add(image)
             key = cv2.waitKey(15) & 0xFF
-            if key in (ord("q"), 27) or cv2.getWindowProperty("Pathfinder Vision", cv2.WND_PROP_VISIBLE) < 1:
+            if key in (ord("q"), 27) or cv2.getWindowProperty(window, cv2.WND_PROP_VISIBLE) < 1:
                 break
             if key == ord("h"):
                 pipeline.toggle_hands()
             elif key == ord("p"):
                 pipeline.cycle_people()
+            elif key == ord("c"):
+                numbers = [n for n, _ in list_cameras()]
+                if numbers and dd["selected"] in numbers:
+                    switch_camera(numbers[(numbers.index(dd["selected"]) + 1) % len(numbers)])
             elif key == ord("r") and got:
                 if recorder.active:
                     print(f"Saved {recorder.stop()}")
@@ -131,14 +173,14 @@ def main(argv=None) -> None:
                     print(f"Recording to {recorder.start((got[0].shape[1], got[0].shape[0]))}")
             elif key == ord("s") and got:
                 a.out_dir.mkdir(parents=True, exist_ok=True)
-                shot = a.out_dir / f"pathfinder-vision-{time.strftime('%Y%m%d-%H%M%S')}.png"
+                shot = a.out_dir / f"pathfinder-vision-cam{a.camera}-{time.strftime('%Y%m%d-%H%M%S')}.png"
                 cv2.imwrite(str(shot), got[0])
                 print(f"Saved {shot}")
     finally:
         if recorder.active:
             print(f"Saved {recorder.stop()}")
         pipeline.close()
-        camera.close()
+        holder["camera"].close()
         cv2.destroyAllWindows()
 
 
