@@ -248,3 +248,22 @@ def test_model_failure_is_reported_not_raised():
 
 def test_tool_schemas_are_exactly_the_five_tools():
     assert {t["function"]["name"] for t in TOOL_SCHEMAS} == {"get_scene", "pick", "place", "stop", "say"}
+
+
+def test_no_further_model_calls_once_stopped():
+    _, _, safety, tools, _ = stack()
+    llm = FakeLLM([ChatResult("", (call("stop", {}), call("pick", {"id": "obj1"}))), ChatResult("should never be asked")])
+    out = Orchestrator(llm, tools).run("do something")
+    assert safety.stopped and len(llm.requests) == 1 and out.reply == "stopped"
+
+
+def test_tool_runs_are_recorded_in_the_timeline():
+    _, _, _, tools, _ = stack()
+    log = CallLog()
+    llm = FakeLLM([ChatResult("", (call("pick", {"id": "obj1"}), call("pick", {"id": "nope"}))), ChatResult("ok")])
+    Orchestrator(llm, tools, log=log).run("pick the cube")
+    entries = log.entries()
+    assert [e["source"] for e in entries] == ["Tools", "Tools"]
+    assert entries[0]["status"] == "ok" and entries[1]["status"] == "blocked"
+    Orchestrator(FakeLLM([]), tools, log=log).run("STOP")
+    assert log.entries()[-1]["source"] == "Safety"

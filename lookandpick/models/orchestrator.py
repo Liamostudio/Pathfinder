@@ -9,10 +9,12 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
 from dataclasses import dataclass, field
 
 from ..tools import Tools
 from .base import ChatModel, ModelError, ToolCall
+from .calllog import CallLog
 
 SYSTEM_PROMPT = (
     "You control a small table-mounted robot arm through tools. Use only the tools provided. "
@@ -53,8 +55,9 @@ class RunResult:
 
 
 class Orchestrator:
-    def __init__(self, model: ChatModel, tools: Tools, max_steps: int = 6, max_tool_calls: int = 8) -> None:
-        self.model, self.tools = model, tools
+    def __init__(self, model: ChatModel, tools: Tools, max_steps: int = 6, max_tool_calls: int = 8,
+                 log: CallLog | None = None) -> None:
+        self.model, self.tools, self.log = model, tools, log
         self.max_steps, self.max_tool_calls = max_steps, max_tool_calls
 
     def stop(self) -> str:
@@ -64,13 +67,20 @@ class Orchestrator:
     def run(self, command: str) -> RunResult:
         result = RunResult(command)
         if STOP_WORDS.match(command):
+            started = time.monotonic()
             result.steps.append({"name": "stop", "args": {}, "result": self.stop()})
+            if self.log is not None:
+                self.log.record("Safety", f"{command!r} (local stop word, no model call)", "stopped",
+                                (time.monotonic() - started) * 1000, status="blocked")
             result.reply = "stopped"
             return result
         messages = [{"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": f"Scene: {json.dumps(self.tools.get_scene())}\n\nRequest: {command}"}]
         executed = 0
         for _ in range(self.max_steps):
+            if self.tools.safety.stopped:  # after any stop, do not keep asking the model to try again
+                result.reply = result.reply or "stopped"
+                return result
             try:
                 reply = self.model.chat(messages, TOOL_SCHEMAS)
             except ModelError as e:
@@ -87,6 +97,9 @@ class Orchestrator:
                 outcome = "error: too many tool calls in one request" if executed > self.max_tool_calls \
                     else self._execute(call, result)
                 messages.append({"role": "tool", "tool_call_id": call.id, "content": outcome})
+            if self.tools.safety.stopped:
+                result.reply = result.reply or "stopped"
+                return result
             if all(c.name == "say" for c in reply.tool_calls):
                 result.reply = result.reply or reply.content  # nothing left to do: skip a round trip (~3 s, ~1 cent)
                 return result
@@ -94,6 +107,7 @@ class Orchestrator:
         return result
 
     def _execute(self, call: ToolCall, result: RunResult) -> str:
+        started = time.monotonic()
         try:
             args = json.loads(call.arguments or "{}")
             if not isinstance(args, dict):
@@ -102,6 +116,9 @@ class Orchestrator:
         except (ValueError, TypeError) as e:
             outcome = f"error: {e}"
         result.steps.append({"name": call.name, "args": call.arguments, "result": outcome})
+        if self.log is not None:
+            self.log.record("Tools", f"{call.name}({call.arguments})", outcome[:300], (time.monotonic() - started) * 1000,
+                            status="blocked" if outcome.startswith(("blocked", "error")) else "ok")
         return outcome
 
     def _dispatch(self, name: str, args: dict) -> str:

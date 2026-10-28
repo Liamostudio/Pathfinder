@@ -45,17 +45,27 @@ def cost_usd(model: str, usage: dict) -> float:
 
 
 class MetaClient:
-    name = "Muse Spark"
-
     def __init__(self, api_key: str, model: str = "muse-spark-1.3", *, base_url: str = BASE_URL,
                  log: CallLog | None = None, spend_cap_usd: float = 2.0, max_calls: int = 300,
-                 timeout_s: float = 60.0, retries: int = 2, backoff_s: float = 1.0) -> None:
+                 timeout_s: float = 60.0, retries: int = 2, backoff_s: float = 1.0,
+                 name: str = "Muse Spark", free: bool = False) -> None:
+        """`free` is for a model served locally (Glimmer): calls are logged at zero cost."""
         if not api_key:
             raise ModelError("no API key: set MODEL_API_KEY in .env")
         self._key, self.model, self.base_url = api_key, model, base_url.rstrip("/")
+        self.name, self.free = name, free
         self.log = log or CallLog()
         self.spend_cap_usd, self.max_calls = spend_cap_usd, max_calls
         self.timeout_s, self.retries, self.backoff_s = timeout_s, retries, backoff_s
+
+    @classmethod
+    def glimmer_from_env(cls, log: CallLog | None = None, env_file: Path | str = ".env") -> "MetaClient":
+        """Muse Glimmer served locally (Ollama, llama.cpp or vLLM) behind an OpenAI-compatible endpoint."""
+        load_env(env_file)
+        return cls(os.environ.get("GLIMMER_API_KEY", "local"), os.environ.get("GLIMMER_MODEL", "muse-glimmer"),
+                   base_url=os.environ.get("GLIMMER_BASE_URL", "http://127.0.0.1:11434/v1"), log=log,
+                   spend_cap_usd=float("inf"), max_calls=int(os.environ.get("MODEL_MAX_CALLS", "1000")),
+                   name="Muse Glimmer", free=True, timeout_s=120.0)
 
     @classmethod
     def from_env(cls, log: CallLog | None = None, env_file: Path | str = ".env") -> "MetaClient":
@@ -110,7 +120,7 @@ class MetaClient:
         usage = result.usage
         out = result.content + "".join(f" [tool {c.name}({c.arguments})]" for c in calls)
         self.log.record(self.name, _summary(messages), out.strip() or "(empty)", (time.monotonic() - started) * 1000,
-                        cost_usd=cost_usd(self.model, usage),
+                        cost_usd=0.0 if self.free else cost_usd(self.model, usage),
                         tokens={"in": usage.get("prompt_tokens", 0), "out": usage.get("completion_tokens", 0),
                                 "reasoning": (usage.get("completion_tokens_details") or {}).get("reasoning_tokens", 0)})
         return result
