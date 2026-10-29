@@ -13,10 +13,11 @@ class ReadOnlySO101Health:
         if self._bus is not None:
             raise RuntimeError('Health reader already open')
         if self._factory is None:
-            from lerobot.motors import Motor, MotorNormMode, SerialMotorsBus
+            from lerobot.motors import Motor, MotorNormMode
+            from lerobot.motors.feetech import FeetechMotorsBus  # LeRobot 0.6 has no SerialMotorsBus
             motors = {name: Motor(i, 'sts3215', MotorNormMode.RANGE_0_100 if name == 'gripper' else MotorNormMode.DEGREES)
                       for i,name in enumerate(JOINTS,1)}
-            self._bus = SerialMotorsBus(port=self.port, motors=motors)
+            self._bus = FeetechMotorsBus(port=self.port, motors=motors)
         else:
             self._bus = self._factory(self.port)
         try:

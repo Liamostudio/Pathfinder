@@ -53,8 +53,8 @@ perform LeRobot's manual range calibration with Liam present before considering 
 ## Read-only health
 
 ```sh
-python scripts/so101_check.py
-python scripts/so101_check.py --port /dev/ttyACM0
+PYTHONPATH=. ~/src/lerobot-venv/bin/python scripts/so101_check.py
+PYTHONPATH=. ~/src/lerobot-venv/bin/python scripts/so101_check.py --port /dev/ttyACM0
 ```
 
 Without `--port`, only path names are listed: no port is opened. With a port, the helper
