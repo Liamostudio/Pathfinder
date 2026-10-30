@@ -20,6 +20,9 @@ class FakeBus:
         self.volts, self.follow = volts, follow
         self.torque = False
         self.events = []
+        self.motors = {j: None for j in JOINTS}
+        self.fail_release = set()
+        self.released = set()
 
     def sync_read(self, name, normalize=True):
         if name == "Present_Voltage":
@@ -40,8 +43,11 @@ class FakeBus:
         self.torque = True
         self.events.append(("torque_on", dict(self.goal)))
 
-    def disable_torque(self):
+    def disable_torque(self, motor=None):
+        if motor in self.fail_release:
+            raise RuntimeError("Overload error!")
         self.torque = False
+        self.released.update(self.motors if motor is None else [motor])
         self.events.append(("torque_off",))
 
 
@@ -104,3 +110,32 @@ def test_main_refuses_without_a_terminal_or_port(monkeypatch):
         nudge_mod.main(["--port", "/dev/ttyACM0"])  # pytest's stdin is not a terminal
     with pytest.raises(SystemExit, match="at most"):
         nudge_mod.main(["--port", "/dev/ttyACM0", "--degrees", "20"])
+
+
+def test_hold_only_moves_nothing_and_reports_the_voltage():
+    bus = FakeBus()
+    start = dict(bus.pos)
+    stats = nudge_mod.hold_only(bus, 2.0, sleep=lambda _: None, log=lambda *_: None)
+    assert bus.pos == start and stats["min_volts"] == pytest.approx(5.5)
+    assert [e for e in bus.events if e[0] == "goal" and e[2]] == []  # no goal written after torque came on
+
+
+def test_hold_only_aborts_on_a_deep_sag():
+    with pytest.raises(nudge_mod.NudgeAbort, match="hold-only"):
+        nudge_mod.hold_only(FakeBus(volts=38), 2.0, sleep=lambda _: None, log=lambda *_: None)
+
+
+def test_one_motor_failing_to_release_does_not_stop_the_others():
+    bus = FakeBus()
+    bus.fail_release = {"elbow_flex"}
+    logged = []
+    failed = nudge_mod.release_all(bus, log=logged.append)
+    assert failed == ["elbow_flex"]
+    assert bus.released == set(JOINTS) - {"elbow_flex"}  # motors after the failing one were still released
+    assert any("CUT THE 5V SUPPLY" in line for line in logged)
+
+
+def test_clean_release_reports_no_failures():
+    bus = FakeBus()
+    assert nudge_mod.release_all(bus, log=lambda *_: None) == []
+    assert bus.released == set(JOINTS)

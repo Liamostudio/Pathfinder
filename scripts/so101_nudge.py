@@ -11,7 +11,8 @@ is still off, then torque goes on, then one joint moves.
 SAFETY: powers the servos. Liam must be physically present at an interactive terminal with the 5V kill switch
 in reach (refuses over SSH or piped input). Put the arm in its folded rest pose first and keep a hand on it.
 At most 5 degrees, 10 degrees/s, one joint. Aborts (and releases torque) on a stall, a voltage sag or Ctrl-C.
-Torque is ALWAYS released at the end, so the arm goes limp: support it.
+Torque is released motor by motor at the end (a motor that errors cannot leave the others on; if any release
+cannot be confirmed the script says so and you cut the supply), so the arm goes limp: support it.
 """
 from __future__ import annotations
 
@@ -38,6 +39,27 @@ class NudgeAbort(RuntimeError):
     """A safety condition stopped the move; torque has been or will be released."""
 
 
+def release_all(bus, *, log=print) -> list[str]:
+    """Release torque motor by motor, so one motor that errors (e.g. overload) cannot leave the others on.
+
+    Returns the motors whose release could not be confirmed; the caller must then tell the operator to cut the supply.
+    """
+    failed = []
+    for motor in list(bus.motors):
+        for _ in range(3):
+            try:
+                bus.disable_torque(motor)
+                break
+            except Exception as exc:  # noqa: BLE001 - any failure must still let the loop reach the other motors
+                last = exc
+        else:
+            failed.append(motor)
+            log(f"COULD NOT CONFIRM torque released on {motor}: {last}")
+    if failed:
+        log(f"!!! {', '.join(failed)} may still be holding. CUT THE 5V SUPPLY NOW (unplug it); that releases every motor.")
+    return failed
+
+
 def volts(bus) -> dict[str, float]:
     return {name: raw / 10 for name, raw in bus.sync_read("Present_Voltage", normalize=False).items()}
 
@@ -54,6 +76,20 @@ def arm_hold(bus) -> dict[str, float]:
     bus.sync_write("Goal_Position", present)
     bus.enable_torque()
     return present
+
+
+def hold_only(bus, seconds: float = 10.0, *, floor: float = 4.0, sleep=time.sleep, log=print) -> dict:
+    """Hold the arm still and print the motor voltages twice a second; no joint moves. For supply diagnosis."""
+    start = arm_hold(bus)
+    lowest = min(volts(bus).values())
+    for _ in range(int(seconds * 2)):
+        sleep(0.5)
+        v = volts(bus)
+        lowest = min(lowest, min(v.values()))
+        log(f"holding: lowest {min(v.values()):.1f} V, highest {max(v.values()):.1f} V")
+        if min(v.values()) < floor:
+            raise NudgeAbort(f"voltage fell to {min(v.values()):.1f} V (hold-only limit {floor} V)")
+    return {"min_volts": lowest, "start": start}
 
 
 def nudge(bus, joint: str, degrees: float, *, sleep=time.sleep, log=print) -> dict:
@@ -100,6 +136,7 @@ def main(argv=None, *, ask=input) -> None:
     p.add_argument("--id", default="lookandpick", help="name of the calibration file (the one calibrate wrote)")
     p.add_argument("--joint", default="wrist_roll", choices=NUDGE_JOINTS)
     p.add_argument("--degrees", type=float, default=3.0)
+    p.add_argument("--hold-only", action="store_true", help="hold the arm still for 10 s and print voltages; moves nothing")
     a = p.parse_args(argv)
     if not 0 < abs(a.degrees) <= MAX_DEGREES:
         raise SystemExit(f"--degrees must be non-zero and at most {MAX_DEGREES} either way")
@@ -115,6 +152,13 @@ def main(argv=None, *, ask=input) -> None:
             raise SystemExit("The motors' calibration does not match the saved file; nothing was moved.")
         print("Positions (deg):", {k: round(v, 1) for k, v in robot.bus.sync_read("Present_Position").items()})
         print("Voltages (V):", volts(robot.bus))
+        if a.hold_only:
+            if ask("Arm folded at rest and supported by your hand? Type HOLD to turn torque on (nothing will move) "
+                   "for 10 s:\n> ") != "HOLD":
+                raise SystemExit("Not confirmed; torque stays off.")
+            stats = hold_only(robot.bus)
+            print(f"Done. Lowest voltage while holding {stats['min_volts']:.1f} V.")
+            return
         if ask(f"Arm folded at rest and supported by your hand? Type MOVE to turn torque on and nudge "
                f"{a.joint} by {a.degrees} deg:\n> ") != "MOVE":
             raise SystemExit("Not confirmed; nothing was moved.")
@@ -124,10 +168,11 @@ def main(argv=None, *, ask=input) -> None:
         print(f"ABORTED: {exc}")
     finally:
         try:
-            robot.bus.disable_torque()
+            failed = release_all(robot.bus)
         finally:
             robot.bus.disconnect(disable_torque=False)
-        print("Torque released; the arm is limp. Support it.")
+        if not failed:
+            print("Torque released on all six motors; the arm is limp. Support it.")
 
 
 if __name__ == "__main__":
