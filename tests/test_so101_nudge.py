@@ -74,10 +74,12 @@ def test_moves_one_joint_in_small_steps_and_returns():
     assert all(set(e[1]) == {"wrist_flex"} for e in bus.events if e[0] == "goal" and e[2])
 
 
-def test_refuses_more_than_five_degrees_and_unknown_or_gripper_joints():
-    for bad in (0, 5.1, -6):
+def test_per_joint_ceilings_and_no_gripper_or_unknown_joints():
+    for joint, bad in (("shoulder_lift", 5.1), ("elbow_flex", -6), ("wrist_flex", 10.1), ("wrist_roll", 20.1), ("wrist_roll", 0)):
         with pytest.raises(ValueError):
-            run(FakeBus(), degrees=bad)
+            run(FakeBus(), joint=joint, degrees=bad)
+    run(FakeBus(), "wrist_roll", 20.0)
+    run(FakeBus(), "wrist_flex", -10.0)
     for joint in ("gripper", "nonsense"):
         with pytest.raises(ValueError):
             run(FakeBus(), joint=joint)
@@ -109,7 +111,7 @@ def test_main_refuses_without_a_terminal_or_port(monkeypatch):
     with pytest.raises(SystemExit, match="interactive"):
         nudge_mod.main(["--port", "/dev/ttyACM0"])  # pytest's stdin is not a terminal
     with pytest.raises(SystemExit, match="at most"):
-        nudge_mod.main(["--port", "/dev/ttyACM0", "--degrees", "20"])
+        nudge_mod.main(["--port", "/dev/ttyACM0", "--degrees", "25"])
 
 
 def test_hold_only_moves_nothing_and_reports_the_voltage():

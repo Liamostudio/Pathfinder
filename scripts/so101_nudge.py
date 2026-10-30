@@ -10,7 +10,7 @@ is still off, then torque goes on, then one joint moves.
 
 SAFETY: powers the servos. Liam must be physically present at an interactive terminal with the 5V kill switch
 in reach (refuses over SSH or piped input). Put the arm in its folded rest pose first and keep a hand on it.
-At most 5 degrees, 10 degrees/s, one joint. Aborts (and releases torque) on a stall, a voltage sag or Ctrl-C.
+At most 5 degrees (wrist_flex 10, wrist_roll 20), 10 degrees/s, one joint. Aborts (and releases torque) on a stall, a voltage sag or Ctrl-C.
 Torque is released motor by motor at the end (a motor that errors cannot leave the others on; if any release
 cannot be confirmed the script says so and you cut the supply), so the arm goes limp: support it.
 """
@@ -24,7 +24,9 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from so101_setup import build_robot, find_ports, require_present  # noqa: E402
 
-MAX_DEGREES = 5.0
+# Per-joint ceilings. The wrist roll carries no weight against gravity, so it may go further; the joints that lift
+# the arm stay at 5 degrees until the supply has shown it can carry them.
+MAX_DEGREES = {"shoulder_pan": 5.0, "shoulder_lift": 5.0, "elbow_flex": 5.0, "wrist_flex": 10.0, "wrist_roll": 20.0}
 STEP_DEG = 0.5
 PERIOD_S = 0.05                 # 0.5 deg / 0.05 s = 10 deg/s
 STALL_DEG = 2.0                 # abort when the joint lags its command by this much...
@@ -96,8 +98,8 @@ def nudge(bus, joint: str, degrees: float, *, sleep=time.sleep, log=print) -> di
     """Move `joint` by `degrees` (|degrees| <= 5), hold, return. Returns min voltage and worst lag seen."""
     if joint not in NUDGE_JOINTS:
         raise ValueError(f"joint must be one of {NUDGE_JOINTS}")
-    if not 0 < abs(degrees) <= MAX_DEGREES:
-        raise ValueError(f"degrees must be non-zero and at most {MAX_DEGREES} either way")
+    if not 0 < abs(degrees) <= MAX_DEGREES[joint]:
+        raise ValueError(f"degrees must be non-zero and at most {MAX_DEGREES[joint]} either way for {joint}")
     start = arm_hold(bus)
     stats = {"min_volts": min(volts(bus).values()), "max_lag_deg": 0.0, "start_deg": start[joint]}
     log(f"holding; {joint} at {start[joint]:.2f} deg, lowest motor voltage {stats['min_volts']:.1f} V")
@@ -138,8 +140,8 @@ def main(argv=None, *, ask=input) -> None:
     p.add_argument("--degrees", type=float, default=3.0)
     p.add_argument("--hold-only", action="store_true", help="hold the arm still for 10 s and print voltages; moves nothing")
     a = p.parse_args(argv)
-    if not 0 < abs(a.degrees) <= MAX_DEGREES:
-        raise SystemExit(f"--degrees must be non-zero and at most {MAX_DEGREES} either way")
+    if not 0 < abs(a.degrees) <= MAX_DEGREES[a.joint]:
+        raise SystemExit(f"--degrees must be non-zero and at most {MAX_DEGREES[a.joint]} either way for {a.joint}")
     if a.port not in find_ports():
         raise SystemExit(f"{a.port} does not exist. Ports now: {find_ports() or 'none'}")
     require_present()
