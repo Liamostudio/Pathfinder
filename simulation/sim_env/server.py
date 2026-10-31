@@ -126,7 +126,7 @@ def handler_for(session):
             self.send_response(code)
             for key, value in {'Content-Type':content_type, 'Content-Length':str(len(body)), 'Cache-Control':'no-store',
                                'X-Content-Type-Options':'nosniff',
-                               'Content-Security-Policy':"default-src 'self'; img-src 'self' blob:; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; object-src 'none'"}.items():
+                               'Content-Security-Policy':"default-src 'self'; img-src 'self' blob:; script-src 'self'; style-src 'self'; connect-src 'self'; frame-src 'self' http://127.0.0.1:8790; frame-ancestors 'none'; object-src 'none'"}.items():
                 self.send_header(key,value)
             self.end_headers()
             try:

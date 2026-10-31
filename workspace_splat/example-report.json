@@ -1,0 +1,39 @@
+{
+  "date": "2026-10-31",
+  "inputs": 4,
+  "registered_cameras": 4,
+  "sparse_seed_points": 755,
+  "mean_reprojection_error_px": 0.7190951045796349,
+  "steps": 2500,
+  "training_max_edge": 640,
+  "gaussians": 40000,
+  "splat_bytes": 1280000,
+  "seed": 0,
+  "gpu": "NVIDIA GeForce RTX 5070 Laptop GPU",
+  "torch": "2.14.1+cu130",
+  "gsplat": "1.5.3",
+  "pycolmap": "4.2.1",
+  "fit_elapsed_s_excluding_first_compile": 13.17,
+  "torch_peak_allocated_mb": 136.1,
+  "training_view_metrics": [
+    {
+      "name": "00000.jpg",
+      "psnr_db": 25.02137063071134
+    },
+    {
+      "name": "00001.jpg",
+      "psnr_db": 35.30494210711233
+    },
+    {
+      "name": "00002.jpg",
+      "psnr_db": 31.868853492012605
+    },
+    {
+      "name": "00003.jpg",
+      "psnr_db": 34.642481560337245
+    }
+  ],
+  "held_out_evaluation": false,
+  "metric_alignment": false,
+  "quality": "Sparse preview; holes/floaters away from captured views. Arm baked into static scene."
+}

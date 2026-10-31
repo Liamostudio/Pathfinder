@@ -1,0 +1,10 @@
+# PyTorch with CUDA must already be available to this environment.
+numpy>=2.3,<3
+opencv-contrib-python>=4.10,<6
+Pillow==13.0.0
+scipy==1.18.1
+pycolmap==4.2.1
+gsplat==1.5.3
+ninja==1.13.2
+pytest>=9,<10
+plyfile==1.1.5

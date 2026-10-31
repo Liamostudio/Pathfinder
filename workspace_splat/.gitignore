@@ -1,0 +1,7 @@
+.venv/
+.cuda/
+.cache/
+data/
+server.log
+server.pid
+__pycache__/
