@@ -10,7 +10,7 @@ is still off, then torque goes on, then one joint moves.
 
 SAFETY: powers the servos. Liam must be physically present at an interactive terminal with the 5V kill switch
 in reach (refuses over SSH or piped input). Put the arm in its folded rest pose first and keep a hand on it.
-At most 5 degrees (wrist_flex 10, wrist_roll 20), 10 degrees/s, one joint. Aborts (and releases torque) on a stall, a voltage sag or Ctrl-C.
+At most 20 degrees per move, 10 degrees/s, one joint at a time, never past a joint's calibrated range. Aborts (and releases torque) on a stall, a voltage sag or Ctrl-C.
 Torque is released motor by motor at the end (a motor that errors cannot leave the others on; if any release
 cannot be confirmed the script says so and you cut the supply), so the arm goes limp: support it.
 """
@@ -24,9 +24,10 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from so101_setup import build_robot, find_ports, require_present  # noqa: E402
 
-# Per-joint ceilings. The wrist roll carries no weight against gravity, so it may go further; the joints that lift
-# the arm stay at 5 degrees until the supply has shown it can carry them.
-MAX_DEGREES = {"shoulder_pan": 5.0, "shoulder_lift": 5.0, "elbow_flex": 5.0, "wrist_flex": 10.0, "wrist_roll": 20.0}
+# Per-move ceiling for every joint. The move is also checked against the joint's calibrated range (see joint_limits),
+# so a joint resting at one end of its range can only be sent the other way.
+MAX_DEGREES = {name: 20.0 for name in ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")}
+RANGE_MARGIN_DEG = 2.0
 STEP_DEG = 0.5
 PERIOD_S = 0.05                 # 0.5 deg / 0.05 s = 10 deg/s
 STALL_DEG = 2.0                 # abort when the joint lags its command by this much...
@@ -94,42 +95,94 @@ def hold_only(bus, seconds: float = 10.0, *, floor: float = 4.0, sleep=time.slee
     return {"min_volts": lowest, "start": start}
 
 
-def nudge(bus, joint: str, degrees: float, *, sleep=time.sleep, log=print) -> dict:
-    """Move `joint` by `degrees` (|degrees| <= 5), hold, return. Returns min voltage and worst lag seen."""
-    if joint not in NUDGE_JOINTS:
-        raise ValueError(f"joint must be one of {NUDGE_JOINTS}")
-    if not 0 < abs(degrees) <= MAX_DEGREES[joint]:
-        raise ValueError(f"degrees must be non-zero and at most {MAX_DEGREES[joint]} either way for {joint}")
+def joint_limits(bus) -> dict[str, tuple[float, float]]:
+    """Calibrated range of each joint in the degrees the bus reports (centred on the calibration midpoint).
+
+    wrist_roll is a full-turn joint and has no limit. A bus without calibration data (a test fake) has none.
+    """
+    limits = {}
+    for name, cal in getattr(bus, "calibration", {}).items():
+        if name == "wrist_roll":
+            continue
+        half = (cal.range_max - cal.range_min) / 2 * 360 / 4095
+        limits[name] = (-half, half)
+    return limits
+
+
+def check_moves(bus, moves) -> None:
+    """Refuse a bad plan BEFORE torque comes on: unknown joint, too big, or past the calibrated range."""
+    if not moves:
+        raise ValueError("no moves given")
+    present = bus.sync_read("Present_Position")
+    limits = joint_limits(bus)
+    for joint, degrees in moves:
+        if joint not in NUDGE_JOINTS:
+            raise ValueError(f"joint must be one of {NUDGE_JOINTS}")
+        if not 0 < abs(degrees) <= MAX_DEGREES[joint]:
+            raise ValueError(f"degrees must be non-zero and at most {MAX_DEGREES[joint]} either way for {joint}")
+        if joint in limits:
+            lo, hi = limits[joint]
+            target = present[joint] + degrees
+            if not lo - RANGE_MARGIN_DEG <= target <= hi + RANGE_MARGIN_DEG:
+                raise ValueError(f"{joint} at {present[joint]:.1f} deg cannot move {degrees:+g}: target {target:.1f} is outside "
+                                 f"its calibrated range {lo:.1f} to {hi:.1f}. Try {-degrees:+g}.")
+
+
+def run_moves(bus, moves, *, sleep=time.sleep, log=print) -> list[dict]:
+    """Hold the arm once, then for each (joint, degrees): move, hold, return. One stats dict per completed move."""
+    check_moves(bus, moves)
     start = arm_hold(bus)
-    stats = {"min_volts": min(volts(bus).values()), "max_lag_deg": 0.0, "start_deg": start[joint]}
-    log(f"holding; {joint} at {start[joint]:.2f} deg, lowest motor voltage {stats['min_volts']:.1f} V")
-    lag_count = 0
+    lowest_hold = min(volts(bus).values())
+    log(f"holding; lowest motor voltage {lowest_hold:.1f} V")
+    results = []
 
-    def go(target: float) -> None:
-        nonlocal lag_count
-        current = bus.sync_read("Present_Position")[joint]
-        while abs(target - current) > 1e-9:
-            command = current + max(-STEP_DEG, min(STEP_DEG, target - current))
-            bus.sync_write("Goal_Position", {joint: command})
-            sleep(PERIOD_S)
-            observed = bus.sync_read("Present_Position")[joint]
-            lowest = min(volts(bus).values())
-            stats["min_volts"] = min(stats["min_volts"], lowest)
-            stats["max_lag_deg"] = max(stats["max_lag_deg"], abs(command - observed))
-            if lowest < MIN_VOLTS:
-                raise NudgeAbort(f"voltage fell to {lowest:.1f} V (limit {MIN_VOLTS} V)")
-            lag_count = lag_count + 1 if abs(command - observed) > STALL_DEG else 0
-            if lag_count >= STALL_READS:
-                raise NudgeAbort(f"{joint} is not following its command (lag {abs(command - observed):.1f} deg)")
-            current = command
+    for joint, degrees in moves:
+        stats = {"joint": joint, "degrees": degrees, "min_volts": lowest_hold, "max_lag_deg": 0.0, "start_deg": start[joint]}
+        lag_count = 0
 
-    go(start[joint] + degrees)
-    log(f"reached +{degrees} deg; holding 1 s")
-    sleep(1.0)
-    go(start[joint])
-    log("back at start; holding 1 s")
-    sleep(1.0)
-    return stats
+        def go(target: float) -> None:
+            nonlocal lag_count
+            current = bus.sync_read("Present_Position")[joint]
+            while abs(target - current) > 1e-9:
+                command = current + max(-STEP_DEG, min(STEP_DEG, target - current))
+                bus.sync_write("Goal_Position", {joint: command})
+                sleep(PERIOD_S)
+                observed = bus.sync_read("Present_Position")[joint]
+                lowest = min(volts(bus).values())
+                stats["min_volts"] = min(stats["min_volts"], lowest)
+                stats["max_lag_deg"] = max(stats["max_lag_deg"], abs(command - observed))
+                if lowest < MIN_VOLTS:
+                    raise NudgeAbort(f"voltage fell to {lowest:.1f} V (limit {MIN_VOLTS} V) during {joint} {degrees:+g}")
+                lag_count = lag_count + 1 if abs(command - observed) > STALL_DEG else 0
+                if lag_count >= STALL_READS:
+                    raise NudgeAbort(f"{joint} is not following its command (lag {abs(command - observed):.1f} deg)")
+                current = command
+
+        log(f"{joint}: {start[joint]:.1f} -> {start[joint] + degrees:.1f} deg")
+        go(start[joint] + degrees)
+        sleep(1.0)
+        go(start[joint])
+        sleep(1.0)
+        log(f"{joint} {degrees:+g}: done, lowest {stats['min_volts']:.1f} V, worst lag {stats['max_lag_deg']:.2f} deg")
+        results.append(stats)
+    return results
+
+
+def nudge(bus, joint: str, degrees: float, *, sleep=time.sleep, log=print) -> dict:
+    """One move: `joint` by `degrees`, hold, return. Returns min voltage and worst lag seen."""
+    return run_moves(bus, [(joint, degrees)], sleep=sleep, log=log)[0]
+
+
+def parse_moves(text: str) -> list[tuple[str, float]]:
+    """'wrist_roll:20,elbow_flex:-20' -> [('wrist_roll', 20.0), ('elbow_flex', -20.0)]"""
+    moves = []
+    for item in text.split(","):
+        joint, _, degrees = item.strip().partition(":")
+        try:
+            moves.append((joint, float(degrees)))
+        except ValueError:
+            raise SystemExit(f"bad move '{item}': use joint:degrees, e.g. wrist_roll:20") from None
+    return moves
 
 
 def main(argv=None, *, ask=input) -> None:
@@ -138,10 +191,13 @@ def main(argv=None, *, ask=input) -> None:
     p.add_argument("--id", default="lookandpick", help="name of the calibration file (the one calibrate wrote)")
     p.add_argument("--joint", default="wrist_roll", choices=NUDGE_JOINTS)
     p.add_argument("--degrees", type=float, default=3.0)
+    p.add_argument("--moves", help="several moves in one held session, e.g. wrist_roll:20,wrist_flex:-20 (overrides --joint/--degrees)")
     p.add_argument("--hold-only", action="store_true", help="hold the arm still for 10 s and print voltages; moves nothing")
     a = p.parse_args(argv)
-    if not 0 < abs(a.degrees) <= MAX_DEGREES[a.joint]:
-        raise SystemExit(f"--degrees must be non-zero and at most {MAX_DEGREES[a.joint]} either way for {a.joint}")
+    moves = parse_moves(a.moves) if a.moves else [(a.joint, a.degrees)]
+    for joint, degrees in moves:
+        if joint not in NUDGE_JOINTS or not 0 < abs(degrees) <= MAX_DEGREES[joint]:
+            raise SystemExit(f"each move must be one of {NUDGE_JOINTS} with 0 < |degrees| <= {MAX_DEGREES.get(joint)}; got {joint}:{degrees}")
     if a.port not in find_ports():
         raise SystemExit(f"{a.port} does not exist. Ports now: {find_ports() or 'none'}")
     require_present()
@@ -161,11 +217,16 @@ def main(argv=None, *, ask=input) -> None:
             stats = hold_only(robot.bus)
             print(f"Done. Lowest voltage while holding {stats['min_volts']:.1f} V.")
             return
-        if ask(f"Arm folded at rest and supported by your hand? Type MOVE to turn torque on and nudge "
-               f"{a.joint} by {a.degrees} deg:\n> ") != "MOVE":
+        try:
+            check_moves(robot.bus, moves)
+        except ValueError as exc:
+            raise SystemExit(f"Refused before any torque: {exc}") from None
+        plan = ", ".join(f"{j} {d:+g}" for j, d in moves)
+        if ask(f"Arm folded at rest and supported by your hand? Type MOVE to turn torque on and run: {plan}\n> ") != "MOVE":
             raise SystemExit("Not confirmed; nothing was moved.")
-        stats = nudge(robot.bus, a.joint, a.degrees)
-        print(f"Done. Lowest voltage {stats['min_volts']:.1f} V, worst lag {stats['max_lag_deg']:.2f} deg.")
+        results = run_moves(robot.bus, moves)
+        print(f"Done: {len(results)} move(s). Lowest voltage {min(r['min_volts'] for r in results):.1f} V, "
+              f"worst lag {max(r['max_lag_deg'] for r in results):.2f} deg.")
     except NudgeAbort as exc:
         print(f"ABORTED: {exc}")
     finally:

@@ -74,15 +74,77 @@ def test_moves_one_joint_in_small_steps_and_returns():
     assert all(set(e[1]) == {"wrist_flex"} for e in bus.events if e[0] == "goal" and e[2])
 
 
-def test_per_joint_ceilings_and_no_gripper_or_unknown_joints():
-    for joint, bad in (("shoulder_lift", 5.1), ("elbow_flex", -6), ("wrist_flex", 10.1), ("wrist_roll", 20.1), ("wrist_roll", 0)):
+def test_ceiling_and_no_gripper_or_unknown_joints():
+    for joint, bad in (("shoulder_lift", 20.1), ("elbow_flex", -21), ("wrist_flex", 25), ("wrist_roll", 0)):
         with pytest.raises(ValueError):
             run(FakeBus(), joint=joint, degrees=bad)
-    run(FakeBus(), "wrist_roll", 20.0)
-    run(FakeBus(), "wrist_flex", -10.0)
+    for joint in ("wrist_roll", "wrist_flex", "shoulder_pan", "elbow_flex", "shoulder_lift"):
+        run(FakeBus(), joint, 20.0)
     for joint in ("gripper", "nonsense"):
         with pytest.raises(ValueError):
             run(FakeBus(), joint=joint)
+
+
+class Cal:
+    def __init__(self, lo, hi):
+        self.range_min, self.range_max = lo, hi
+
+
+def banded(bus, **positions):
+    """Give the fake the calibration an arm built from 2000-tick ranges has: +-87.9 deg about zero."""
+    bus.calibration = {j: Cal(1000, 3000) for j in JOINTS}
+    bus.pos.update(positions)
+    return bus
+
+
+def test_a_joint_resting_at_the_end_of_its_range_can_only_go_the_other_way():
+    bus = banded(FakeBus(), elbow_flex=87.0)
+    with pytest.raises(ValueError, match="calibrated range.*Try -20"):
+        run(bus, "elbow_flex", 20.0)
+    assert not bus.torque and all(e[0] != "torque_on" for e in bus.events)  # refused before any torque
+    run(bus, "elbow_flex", -20.0)
+
+
+def test_wrist_roll_has_no_range_limit():
+    run(banded(FakeBus(), wrist_roll=175.0), "wrist_roll", 20.0)
+
+
+def test_sequence_holds_once_runs_every_move_and_returns_to_start():
+    bus = banded(FakeBus())
+    start = dict(bus.pos)
+    results = nudge_mod.run_moves(bus, [("wrist_roll", 20.0), ("wrist_flex", -10.0), ("shoulder_pan", 20.0)],
+                                  sleep=lambda _: None, log=lambda *_: None)
+    assert [r["joint"] for r in results] == ["wrist_roll", "wrist_flex", "shoulder_pan"]
+    assert sum(e[0] == "torque_on" for e in bus.events) == 1
+    assert bus.pos == start
+
+
+def test_a_bad_move_anywhere_in_the_plan_refuses_the_whole_plan_before_torque():
+    bus = banded(FakeBus(), elbow_flex=87.0)
+    with pytest.raises(ValueError):
+        nudge_mod.run_moves(bus, [("wrist_roll", 20.0), ("elbow_flex", 20.0)], sleep=lambda _: None, log=lambda *_: None)
+    assert all(e[0] != "torque_on" for e in bus.events)
+
+
+def test_an_abort_mid_sequence_stops_later_moves():
+    bus = FakeBus(volts=55)
+    calls = []
+    real = bus.sync_write
+    def spy(name, values):
+        calls.append(tuple(values))
+        if len(calls) == 60:
+            bus.volts = 40
+        real(name, values)
+    bus.sync_write = spy
+    with pytest.raises(nudge_mod.NudgeAbort, match="voltage"):
+        nudge_mod.run_moves(bus, [("wrist_roll", 20.0), ("wrist_flex", 20.0)], sleep=lambda _: None, log=lambda *_: None)
+    assert ("wrist_flex",) not in calls
+
+
+def test_parse_moves():
+    assert nudge_mod.parse_moves("wrist_roll:20, elbow_flex:-20") == [("wrist_roll", 20.0), ("elbow_flex", -20.0)]
+    with pytest.raises(SystemExit):
+        nudge_mod.parse_moves("wrist_roll")
 
 
 def test_aborts_when_the_joint_does_not_follow():
@@ -110,7 +172,7 @@ def test_main_refuses_without_a_terminal_or_port(monkeypatch):
     monkeypatch.setattr(nudge_mod, "find_ports", lambda: ["/dev/ttyACM0"])
     with pytest.raises(SystemExit, match="interactive"):
         nudge_mod.main(["--port", "/dev/ttyACM0"])  # pytest's stdin is not a terminal
-    with pytest.raises(SystemExit, match="at most"):
+    with pytest.raises(SystemExit, match="each move"):
         nudge_mod.main(["--port", "/dev/ttyACM0", "--degrees", "25"])
 
 
