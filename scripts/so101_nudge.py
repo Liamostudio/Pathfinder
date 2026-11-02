@@ -94,14 +94,19 @@ def settle(bus, *, sleep=time.sleep, log=print) -> float:
     Tolerates the short dip down to SETTLE_FLOOR; refuses to let anything move unless the supply has recovered to
     MIN_VOLTS by the end.
     """
-    lowest = now = min(volts(bus).values())
+    first = volts(bus)
+    lowest = now = min(first.values())
+    per_motor = dict(first)
     for _ in range(int(SETTLE_S / 0.25)):
         sleep(0.25)
-        now = min(volts(bus).values())
+        reading = volts(bus)
+        per_motor = {m: min(per_motor[m], v) for m, v in reading.items()}
+        now = min(reading.values())
         lowest = min(lowest, now)
         if now < SETTLE_FLOOR:
             raise NudgeAbort(f"voltage collapsed to {now:.1f} V while torque came on (floor {SETTLE_FLOOR} V)")
     log(f"settled: lowest {lowest:.1f} V during torque-on, now {now:.1f} V")
+    log("  lowest per motor: " + ", ".join(f"{m} {v:.1f}" for m, v in per_motor.items()))
     if now < MIN_VOLTS:
         raise NudgeAbort(f"voltage has not recovered after torque-on ({now:.1f} V, need {MIN_VOLTS} V)")
     return lowest
