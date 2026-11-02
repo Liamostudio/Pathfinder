@@ -67,8 +67,13 @@ def volts(bus) -> dict[str, float]:
     return {name: raw / 10 for name, raw in bus.sync_read("Present_Voltage", normalize=False).items()}
 
 
-def arm_hold(bus) -> dict[str, float]:
-    """Hold every joint where it is: goals = present while torque is off, gentle settings, then torque on."""
+SETTLE_S = 3.0                  # after torque comes on, watch the supply this long before any motion is allowed
+SETTLE_FLOOR = 3.8              # a hard floor during settling: the brief torque-on dip is tolerated, a collapse is not
+STAGGER_S = 0.25                # gap between switching each motor's torque on, so the supply sees six small surges
+
+
+def arm_hold(bus, *, sleep=time.sleep) -> dict[str, float]:
+    """Hold every joint where it is: goals = present while torque is off, gentle settings, then torque on one by one."""
     bus.disable_torque()
     present = bus.sync_read("Present_Position")
     bus.sync_write("Goal_Position", present)
@@ -77,13 +82,34 @@ def arm_hold(bus) -> dict[str, float]:
         bus.write("Max_Torque_Limit", motor, TORQUE_LIMIT)
     present = bus.sync_read("Present_Position")
     bus.sync_write("Goal_Position", present)
-    bus.enable_torque()
+    for motor in list(bus.motors):
+        bus.enable_torque(motor)
+        sleep(STAGGER_S)
     return present
+
+
+def settle(bus, *, sleep=time.sleep, log=print) -> float:
+    """Watch the supply after torque-on with nothing moving. Returns the lowest voltage seen.
+
+    Tolerates the short dip down to SETTLE_FLOOR; refuses to let anything move unless the supply has recovered to
+    MIN_VOLTS by the end.
+    """
+    lowest = now = min(volts(bus).values())
+    for _ in range(int(SETTLE_S / 0.25)):
+        sleep(0.25)
+        now = min(volts(bus).values())
+        lowest = min(lowest, now)
+        if now < SETTLE_FLOOR:
+            raise NudgeAbort(f"voltage collapsed to {now:.1f} V while torque came on (floor {SETTLE_FLOOR} V)")
+    log(f"settled: lowest {lowest:.1f} V during torque-on, now {now:.1f} V")
+    if now < MIN_VOLTS:
+        raise NudgeAbort(f"voltage has not recovered after torque-on ({now:.1f} V, need {MIN_VOLTS} V)")
+    return lowest
 
 
 def hold_only(bus, seconds: float = 10.0, *, floor: float = 4.0, sleep=time.sleep, log=print) -> dict:
     """Hold the arm still and print the motor voltages twice a second; no joint moves. For supply diagnosis."""
-    start = arm_hold(bus)
+    start = arm_hold(bus, sleep=sleep)
     lowest = min(volts(bus).values())
     for _ in range(int(seconds * 2)):
         sleep(0.5)
@@ -131,8 +157,8 @@ def check_moves(bus, moves) -> None:
 def run_moves(bus, moves, *, sleep=time.sleep, log=print) -> list[dict]:
     """Hold the arm once, then for each (joint, degrees): move, hold, return. One stats dict per completed move."""
     check_moves(bus, moves)
-    start = arm_hold(bus)
-    lowest_hold = min(volts(bus).values())
+    start = arm_hold(bus, sleep=sleep)
+    lowest_hold = settle(bus, sleep=sleep, log=log)
     log(f"holding; lowest motor voltage {lowest_hold:.1f} V")
     results = []
 

@@ -39,7 +39,7 @@ class FakeBus:
     def write(self, name, motor, value):
         self.events.append((name, motor, value))
 
-    def enable_torque(self):
+    def enable_torque(self, motor=None):
         self.torque = True
         self.events.append(("torque_on", dict(self.goal)))
 
@@ -115,7 +115,7 @@ def test_sequence_holds_once_runs_every_move_and_returns_to_start():
     results = nudge_mod.run_moves(bus, [("wrist_roll", 20.0), ("wrist_flex", -10.0), ("shoulder_pan", 20.0)],
                                   sleep=lambda _: None, log=lambda *_: None)
     assert [r["joint"] for r in results] == ["wrist_roll", "wrist_flex", "shoulder_pan"]
-    assert sum(e[0] == "torque_on" for e in bus.events) == 1
+    assert sum(e[0] == "torque_on" for e in bus.events) == len(JOINTS)  # one hold, torque on motor by motor
     assert bus.pos == start
 
 
@@ -203,3 +203,31 @@ def test_clean_release_reports_no_failures():
     bus = FakeBus()
     assert nudge_mod.release_all(bus, log=lambda *_: None) == []
     assert bus.released == set(JOINTS)
+
+
+def test_torque_comes_on_one_motor_at_a_time_with_a_gap():
+    bus = FakeBus()
+    gaps = []
+    nudge_mod.arm_hold(bus, sleep=gaps.append)
+    assert sum(e[0] == "torque_on" for e in bus.events) == len(JOINTS)
+    assert gaps == [nudge_mod.STAGGER_S] * len(JOINTS)
+
+
+def test_a_brief_dip_is_tolerated_but_a_collapse_or_no_recovery_is_not():
+    class Dipping(FakeBus):
+        def __init__(self, trace):
+            super().__init__()
+            self.trace = list(trace)
+
+        def sync_read(self, name, normalize=True):
+            if name == "Present_Voltage":
+                v = self.trace.pop(0) if len(self.trace) > 1 else self.trace[0]
+                return {j: v for j in JOINTS}
+            return super().sync_read(name, normalize)
+
+    ok = Dipping([55, 41, 41, 43, 50, 54])           # dips to 4.1 V then recovers
+    assert nudge_mod.settle(ok, sleep=lambda _: None, log=lambda *_: None) == pytest.approx(4.1)
+    with pytest.raises(nudge_mod.NudgeAbort, match="collapsed"):
+        nudge_mod.settle(Dipping([55, 37]), sleep=lambda _: None, log=lambda *_: None)
+    with pytest.raises(nudge_mod.NudgeAbort, match="not recovered"):
+        nudge_mod.settle(Dipping([55, 42]), sleep=lambda _: None, log=lambda *_: None)

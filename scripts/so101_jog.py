@@ -31,7 +31,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from so101_nudge import (MIN_VOLTS, STALL_DEG, STALL_READS, NudgeAbort, RANGE_MARGIN_DEG, arm_hold,  # noqa: E402
-                         joint_limits, release_all, volts)
+                         joint_limits, release_all, settle, volts)
 from so101_setup import build_robot, find_ports, require_present  # noqa: E402
 
 MAX_SPEED_DEG_S = 10.0
@@ -175,10 +175,10 @@ def probe(device: str) -> None:
 
 def run(bus, fd: int, *, sleep=time.sleep, log=print) -> dict:
     limits = joint_limits(bus)
-    start = arm_hold(bus)
+    start = arm_hold(bus, sleep=sleep)
     jog = Jog(start, limits)
     pad = Pad()
-    lowest = min(volts(bus).values())
+    lowest = settle(bus, sleep=sleep, log=log)
     log("Holding. Hold LB and move the sticks. B or Start stops and releases.")
     ticks = 0
     while True:
