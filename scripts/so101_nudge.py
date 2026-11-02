@@ -187,17 +187,23 @@ def check_moves(bus, moves) -> None:
                                  f"its calibrated range {lo:.1f} to {hi:.1f}. Try {-degrees:+g}.")
 
 
-def run_moves(bus, moves, *, sleep=time.sleep, log=print, torque_limit: int = TORQUE_LIMIT) -> list[dict]:
-    """Hold the arm once, then for each (joint, degrees): move, hold, return. One stats dict per completed move."""
+def run_moves(bus, moves, *, sleep=time.sleep, log=print, torque_limit: int = TORQUE_LIMIT, trace: list | None = None) -> list[dict]:
+    """Hold the arm once, then for each (joint, degrees): move, hold, return. One stats dict per completed move.
+
+    If `trace` is a list, one row per control tick is appended: move, joint, command and observed degrees, and the voltage
+    of every motor, so the voltage can be plotted against position afterwards (see write_trace).
+    """
     check_moves(bus, moves)
     start = arm_hold(bus, sleep=sleep, torque_limit=torque_limit)
     lowest_hold = settle(bus, sleep=sleep, log=log)
     log(f"holding; lowest motor voltage {lowest_hold:.1f} V")
     results = []
     watch = SupplyWatch()
+    t0 = time.monotonic()
 
     for joint, degrees in moves:
-        stats = {"joint": joint, "degrees": degrees, "min_volts": lowest_hold, "max_lag_deg": 0.0, "start_deg": start[joint]}
+        stats = {"joint": joint, "degrees": degrees, "min_volts": lowest_hold, "max_lag_deg": 0.0, "start_deg": start[joint],
+                 "move_min": float("inf"), "min_at_deg": None}
         lag_count = 0
 
         def go(target: float) -> None:
@@ -208,7 +214,14 @@ def run_moves(bus, moves, *, sleep=time.sleep, log=print, torque_limit: int = TO
                 bus.sync_write("Goal_Position", {joint: command})
                 sleep(PERIOD_S)
                 observed = bus.sync_read("Present_Position")[joint]
-                motor_v, lowest = watch.check(volts(bus), f" during {joint} {degrees:+g}")
+                reading = volts(bus)
+                if trace is not None:
+                    trace.append({"t_s": round(time.monotonic() - t0, 3), "move": f"{joint}{degrees:+g}", "joint": joint,
+                                  "command_deg": round(command, 2), "observed_deg": round(observed, 2),
+                                  **{f"v_{m}": v for m, v in reading.items()}})
+                motor_v, lowest = watch.check(reading, f" during {joint} {degrees:+g}")
+                if lowest < stats["move_min"]:                      # the lowest during THIS move, and where the joint was
+                    stats["move_min"], stats["min_at_deg"] = lowest, observed
                 stats["min_volts"] = min(stats["min_volts"], lowest)
                 stats["max_lag_deg"] = max(stats["max_lag_deg"], abs(command - observed))
                 lag_count = lag_count + 1 if abs(command - observed) > STALL_DEG else 0
@@ -221,9 +234,22 @@ def run_moves(bus, moves, *, sleep=time.sleep, log=print, torque_limit: int = TO
         sleep(1.0)
         go(start[joint])
         sleep(1.0)
-        log(f"{joint} {degrees:+g}: done, lowest {stats['min_volts']:.1f} V, worst lag {stats['max_lag_deg']:.2f} deg")
+        where = f" (at {stats['min_at_deg']:.1f} deg)" if stats["min_at_deg"] is not None else ""
+        log(f"{joint} {degrees:+g}: done, lowest {stats['min_volts']:.1f} V{where}, worst lag {stats['max_lag_deg']:.2f} deg")
         results.append(stats)
     return results
+
+
+def write_trace(rows: list[dict], path: str) -> None:
+    """Write the tick-by-tick trace as CSV (stdlib only)."""
+    import csv
+    if not rows:
+        return
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def nudge(bus, joint: str, degrees: float, *, sleep=time.sleep, log=print) -> dict:
@@ -251,6 +277,7 @@ def main(argv=None, *, ask=input) -> None:
     p.add_argument("--degrees", type=float, default=3.0)
     p.add_argument("--torque-limit", type=int, default=TORQUE_LIMIT, choices=range(100, 1001), metavar="100-1000",
                    help=f"Max_Torque_Limit for the arm joints (1000 = full); default {TORQUE_LIMIT}. The gripper stays at {TORQUE_LIMIT}.")
+    p.add_argument("--trace", help="write a CSV of every tick (positions and all six motor voltages) to this path")
     p.add_argument("--moves", help="several moves in one held session, e.g. wrist_roll:20,wrist_flex:-20 (overrides --joint/--degrees)")
     p.add_argument("--hold-only", action="store_true", help="hold the arm still for 10 s and print voltages; moves nothing")
     a = p.parse_args(argv)
@@ -284,7 +311,13 @@ def main(argv=None, *, ask=input) -> None:
         plan = ", ".join(f"{j} {d:+g}" for j, d in moves)
         if ask(f"Arm folded at rest and supported by your hand? Type MOVE to turn torque on and run: {plan}\n> ") != "MOVE":
             raise SystemExit("Not confirmed; nothing was moved.")
-        results = run_moves(robot.bus, moves, torque_limit=a.torque_limit)
+        trace: list[dict] = []
+        try:
+            results = run_moves(robot.bus, moves, torque_limit=a.torque_limit, trace=trace)
+        finally:
+            if a.trace:
+                write_trace(trace, a.trace)
+                print(f"Trace written to {a.trace} ({len(trace)} rows).")
         print(f"Done: {len(results)} move(s). Lowest voltage {min(r['min_volts'] for r in results):.1f} V, "
               f"worst lag {max(r['max_lag_deg'] for r in results):.2f} deg.")
     except NudgeAbort as exc:

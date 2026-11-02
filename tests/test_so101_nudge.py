@@ -267,3 +267,17 @@ def test_a_single_low_reading_is_ignored_three_in_a_row_abort_and_a_collapse_abo
         watch.check(low)
     with pytest.raises(nudge_mod.NudgeAbort, match="collapsed"):
         nudge_mod.SupplyWatch().check({**good, "elbow_flex": 3.7})
+
+
+def test_trace_records_every_tick_with_all_motor_voltages_and_the_position_of_the_lowest(tmp_path):
+    bus = FakeBus()
+    trace = []
+    stats = nudge_mod.run_moves(bus, [("wrist_roll", 2.0)], sleep=lambda _: None, log=lambda *_: None, trace=trace)
+    assert len(trace) == 8                                   # 2 deg out and 2 deg back in 0.5 deg steps
+    assert {"t_s", "move", "joint", "command_deg", "observed_deg"} <= set(trace[0])
+    assert all(f"v_{j}" in trace[0] for j in JOINTS) and trace[0]["v_gripper"] == 5.5
+    assert "min_at_deg" in stats[0]
+    out = tmp_path / "t" / "trace.csv"
+    nudge_mod.write_trace(trace, str(out))
+    assert out.read_text().splitlines()[0].startswith("t_s,move,joint")
+    assert len(out.read_text().splitlines()) == 9
