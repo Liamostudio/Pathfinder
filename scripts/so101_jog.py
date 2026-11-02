@@ -30,8 +30,8 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from so101_nudge import (MIN_VOLTS, STALL_DEG, STALL_READS, TORQUE_LIMIT, NudgeAbort, RANGE_MARGIN_DEG,  # noqa: E402
-                         arm_hold, joint_limits, lowest_motor, release_all, settle, volts)
+from so101_nudge import (STALL_DEG, STALL_READS, TORQUE_LIMIT, NudgeAbort, RANGE_MARGIN_DEG, SupplyWatch,  # noqa: E402
+                         arm_hold, joint_limits, release_all, settle, volts)
 from so101_setup import build_robot, find_ports, require_present  # noqa: E402
 
 MAX_SPEED_DEG_S = 10.0
@@ -173,33 +173,42 @@ def probe(device: str) -> None:
         os.close(fd)
 
 
+def print_reached(reached: dict, start: dict, log=print) -> None:
+    log("Range each joint reached this session (deg):")
+    for joint, (lo, hi) in reached.items():
+        log(f"  {joint:14s} {lo:7.1f} to {hi:7.1f}  (started at {start[joint]:.1f})")
+
+
 def run(bus, fd: int, *, sleep=time.sleep, log=print, torque_limit: int = TORQUE_LIMIT) -> dict:
+    """Jog until B/Start. The range table is printed however the session ends (stop, abort or lost controller)."""
     limits = joint_limits(bus)
     start = arm_hold(bus, sleep=sleep, torque_limit=torque_limit)
     jog = Jog(start, limits)
     pad = Pad()
+    watch = SupplyWatch()
     lowest = settle(bus, sleep=sleep, log=log)
     log("Holding. Hold LB and move the sticks. B or Start stops and releases.")
     ticks = 0
-    while True:
-        pad.feed(read_events(fd))
-        if pad.held(STOP_B) or pad.held(STOP_START):
-            break
-        present = bus.sync_read("Present_Position")
-        changed = jog.tick(pad, present)
-        if changed:
-            bus.sync_write("Goal_Position", changed)
-        if jog.note:
-            log(jog.note)
-        ticks += 1
-        if ticks % VOLT_EVERY == 0:
-            reading = volts(bus)
-            motor_v, now = lowest_motor(reading)
-            lowest = min(lowest, now)
-            if now < MIN_VOLTS:
-                raise NudgeAbort(f"voltage fell to {now:.1f} V on {motor_v} (limit {MIN_VOLTS} V); all motors: "
-                                 + ", ".join(f"{m} {v:.1f}" for m, v in reading.items()))
-        sleep(TICK_S)
+    try:
+        while True:
+            pad.feed(read_events(fd))
+            if pad.held(STOP_B) or pad.held(STOP_START):
+                break
+            present = bus.sync_read("Present_Position")
+            changed = jog.tick(pad, present)
+            if changed:
+                bus.sync_write("Goal_Position", changed)
+            if jog.note:
+                log(jog.note)
+            ticks += 1
+            if ticks % VOLT_EVERY == 0:
+                lowest = min(lowest, watch.check(volts(bus))[1])
+            sleep(TICK_S)
+    finally:
+        print_reached(jog.reached, start, log)
+        if watch.glitches:
+            log("Low supply readings seen (ignored unless 3 in a row), per motor: "
+                + ", ".join(f"{m} x{n}" for m, n in watch.glitches.items()))
     return {"reached": jog.reached, "min_volts": lowest, "start": start}
 
 
@@ -235,9 +244,6 @@ def main(argv=None, *, ask=input) -> None:
         if ask("Arm folded at rest and supported by your hand? Type JOG to turn torque on and start:\n> ") != "JOG":
             raise SystemExit("Not confirmed; nothing was moved.")
         result = run(robot.bus, fd, torque_limit=a.torque_limit)
-        print("Range each joint reached this session (deg):")
-        for joint, (lo, hi) in result["reached"].items():
-            print(f"  {joint:14s} {lo:7.1f} to {hi:7.1f}  (started at {result['start'][joint]:.1f})")
         print(f"Lowest motor voltage {result['min_volts']:.1f} V.")
     except NudgeAbort as exc:
         print(f"ABORTED: {exc}")

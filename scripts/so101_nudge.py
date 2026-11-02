@@ -72,6 +72,29 @@ SETTLE_FLOOR = 3.8              # a hard floor during settling: the brief torque
 STAGGER_S = 0.25                # gap between switching each motor's torque on, so the supply sees six small surges
 
 
+class SupplyWatch:
+    """Abort on a real sag, not a glitch: MIN_VOLTS must be breached on LOW_STREAK readings in a row, or SETTLE_FLOOR once."""
+    LOW_STREAK = 3
+
+    def __init__(self):
+        self.streak = 0
+        self.glitches: dict[str, int] = {}
+
+    def check(self, readings: dict[str, float], context: str = "") -> tuple[str, float]:
+        motor, lowest = min(readings.items(), key=lambda kv: kv[1])
+        if lowest < SETTLE_FLOOR:
+            raise NudgeAbort(f"voltage collapsed to {lowest:.1f} V on {motor} (floor {SETTLE_FLOOR} V){context}")
+        if lowest < MIN_VOLTS:
+            self.streak += 1
+            self.glitches[motor] = self.glitches.get(motor, 0) + 1
+            if self.streak >= self.LOW_STREAK:
+                raise NudgeAbort(f"voltage stayed low: {lowest:.1f} V on {motor} for {self.streak} readings (limit {MIN_VOLTS} V)"
+                                 f"{context}; all motors: " + ", ".join(f"{m} {v:.1f}" for m, v in readings.items()))
+        else:
+            self.streak = 0
+        return motor, lowest
+
+
 def lowest_motor(readings: dict[str, float]) -> tuple[str, float]:
     return min(readings.items(), key=lambda kv: kv[1])
 
@@ -171,6 +194,7 @@ def run_moves(bus, moves, *, sleep=time.sleep, log=print, torque_limit: int = TO
     lowest_hold = settle(bus, sleep=sleep, log=log)
     log(f"holding; lowest motor voltage {lowest_hold:.1f} V")
     results = []
+    watch = SupplyWatch()
 
     for joint, degrees in moves:
         stats = {"joint": joint, "degrees": degrees, "min_volts": lowest_hold, "max_lag_deg": 0.0, "start_deg": start[joint]}
@@ -184,11 +208,9 @@ def run_moves(bus, moves, *, sleep=time.sleep, log=print, torque_limit: int = TO
                 bus.sync_write("Goal_Position", {joint: command})
                 sleep(PERIOD_S)
                 observed = bus.sync_read("Present_Position")[joint]
-                motor_v, lowest = lowest_motor(volts(bus))
+                motor_v, lowest = watch.check(volts(bus), f" during {joint} {degrees:+g}")
                 stats["min_volts"] = min(stats["min_volts"], lowest)
                 stats["max_lag_deg"] = max(stats["max_lag_deg"], abs(command - observed))
-                if lowest < MIN_VOLTS:
-                    raise NudgeAbort(f"voltage fell to {lowest:.1f} V on {motor_v} (limit {MIN_VOLTS} V) during {joint} {degrees:+g}")
                 lag_count = lag_count + 1 if abs(command - observed) > STALL_DEG else 0
                 if lag_count >= STALL_READS:
                     raise NudgeAbort(f"{joint} is not following its command (lag {abs(command - observed):.1f} deg)")

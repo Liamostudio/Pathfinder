@@ -255,3 +255,15 @@ def test_a_brief_dip_is_tolerated_but_a_collapse_or_no_recovery_is_not():
         nudge_mod.settle(Dipping([55, 37]), sleep=lambda _: None, log=lambda *_: None)
     with pytest.raises(nudge_mod.NudgeAbort, match="not recovered"):
         nudge_mod.settle(Dipping([55, 42]), sleep=lambda _: None, log=lambda *_: None)
+
+
+def test_a_single_low_reading_is_ignored_three_in_a_row_abort_and_a_collapse_aborts_at_once():
+    watch = nudge_mod.SupplyWatch()
+    good = {j: 5.4 for j in JOINTS}
+    low = {**good, "wrist_roll": 4.4}
+    watch.check(low); watch.check(good); watch.check(low); watch.check(low)       # never three in a row
+    assert watch.glitches == {"wrist_roll": 3}
+    with pytest.raises(nudge_mod.NudgeAbort, match="stayed low.*wrist_roll"):      # the third low in a row
+        watch.check(low)
+    with pytest.raises(nudge_mod.NudgeAbort, match="collapsed"):
+        nudge_mod.SupplyWatch().check({**good, "elbow_flex": 3.7})
