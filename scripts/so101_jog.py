@@ -30,8 +30,8 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from so101_nudge import (MIN_VOLTS, STALL_DEG, STALL_READS, NudgeAbort, RANGE_MARGIN_DEG, arm_hold,  # noqa: E402
-                         joint_limits, release_all, settle, volts)
+from so101_nudge import (MIN_VOLTS, STALL_DEG, STALL_READS, TORQUE_LIMIT, NudgeAbort, RANGE_MARGIN_DEG,  # noqa: E402
+                         arm_hold, joint_limits, lowest_motor, release_all, settle, volts)
 from so101_setup import build_robot, find_ports, require_present  # noqa: E402
 
 MAX_SPEED_DEG_S = 10.0
@@ -173,9 +173,9 @@ def probe(device: str) -> None:
         os.close(fd)
 
 
-def run(bus, fd: int, *, sleep=time.sleep, log=print) -> dict:
+def run(bus, fd: int, *, sleep=time.sleep, log=print, torque_limit: int = TORQUE_LIMIT) -> dict:
     limits = joint_limits(bus)
-    start = arm_hold(bus, sleep=sleep)
+    start = arm_hold(bus, sleep=sleep, torque_limit=torque_limit)
     jog = Jog(start, limits)
     pad = Pad()
     lowest = settle(bus, sleep=sleep, log=log)
@@ -193,10 +193,12 @@ def run(bus, fd: int, *, sleep=time.sleep, log=print) -> dict:
             log(jog.note)
         ticks += 1
         if ticks % VOLT_EVERY == 0:
-            now = min(volts(bus).values())
+            reading = volts(bus)
+            motor_v, now = lowest_motor(reading)
             lowest = min(lowest, now)
             if now < MIN_VOLTS:
-                raise NudgeAbort(f"voltage fell to {now:.1f} V (limit {MIN_VOLTS} V)")
+                raise NudgeAbort(f"voltage fell to {now:.1f} V on {motor_v} (limit {MIN_VOLTS} V); all motors: "
+                                 + ", ".join(f"{m} {v:.1f}" for m, v in reading.items()))
         sleep(TICK_S)
     return {"reached": jog.reached, "min_volts": lowest, "start": start}
 
@@ -206,6 +208,8 @@ def main(argv=None, *, ask=input) -> None:
     p.add_argument("--port")
     p.add_argument("--id", default="lookandpick", help="name of the calibration file (the one calibrate wrote)")
     p.add_argument("--device", default="/dev/input/js0")
+    p.add_argument("--torque-limit", type=int, default=TORQUE_LIMIT, choices=range(100, 1001), metavar="100-1000",
+                   help=f"Max_Torque_Limit for the arm joints (1000 = full); default {TORQUE_LIMIT}. The gripper stays at {TORQUE_LIMIT}.")
     p.add_argument("--probe", action="store_true", help="only show what the controller reports; no arm")
     a = p.parse_args(argv)
     if not os.path.exists(a.device):
@@ -230,7 +234,7 @@ def main(argv=None, *, ask=input) -> None:
         print("Voltages (V):", volts(robot.bus))
         if ask("Arm folded at rest and supported by your hand? Type JOG to turn torque on and start:\n> ") != "JOG":
             raise SystemExit("Not confirmed; nothing was moved.")
-        result = run(robot.bus, fd)
+        result = run(robot.bus, fd, torque_limit=a.torque_limit)
         print("Range each joint reached this session (deg):")
         for joint, (lo, hi) in result["reached"].items():
             print(f"  {joint:14s} {lo:7.1f} to {hi:7.1f}  (started at {result['start'][joint]:.1f})")

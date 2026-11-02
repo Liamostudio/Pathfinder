@@ -165,6 +165,30 @@ def test_gentle_settings_are_written_to_every_motor():
     assert accel == torque == set(JOINTS)
 
 
+def test_torque_limit_option_applies_to_the_arm_joints_but_never_the_gripper():
+    bus = FakeBus()
+    nudge_mod.run_moves(bus, [("wrist_roll", 5.0)], sleep=lambda _: None, log=lambda *_: None, torque_limit=1000)
+    caps = {e[1]: e[2] for e in bus.events if e[0] == "Max_Torque_Limit"}
+    assert caps["gripper"] == nudge_mod.TORQUE_LIMIT
+    assert all(v == 1000 for k, v in caps.items() if k != "gripper")
+
+
+def test_a_voltage_abort_names_the_motor():
+    class OneLow(FakeBus):
+        def sync_read(self, name, normalize=True):
+            if name == "Present_Voltage":
+                return {j: (38 if j == "elbow_flex" and self.torque and self.pos_moved else 55) for j in JOINTS}
+            return super().sync_read(name, normalize)
+        pos_moved = False
+
+        def sync_write(self, name, values):
+            self.pos_moved = self.pos_moved or len(values) == 1     # a single-joint goal = the move itself has begun
+            super().sync_write(name, values)
+
+    with pytest.raises(nudge_mod.NudgeAbort, match="on elbow_flex"):
+        nudge_mod.run_moves(OneLow(), [("wrist_roll", 5.0)], sleep=lambda _: None, log=lambda *_: None)
+
+
 def test_main_refuses_without_a_terminal_or_port(monkeypatch):
     monkeypatch.setattr(nudge_mod, "find_ports", lambda: [])
     with pytest.raises(SystemExit, match="does not exist"):

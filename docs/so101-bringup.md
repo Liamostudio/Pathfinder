@@ -110,3 +110,20 @@ to get past a refusal. No actual SO-101 FK/IK or physical profile is supplied in
 Primary implementation references: [SO follower source](https://github.com/huggingface/lerobot/blob/main/src/lerobot/robots/so_follower/so_follower.py),
 [motor bus source](https://github.com/huggingface/lerobot/blob/main/src/lerobot/motors/motors_bus.py),
 [robot API](https://huggingface.co/docs/lerobot/main/api/robots).
+
+## Rest pose and what we know about the follower (2 Nov)
+
+**Rest** (Liam's definition, from his photo): arm folded back on itself, upper arm and forearm stacked, gripper closed
+and pointing down just above the table. Typical joint readings at Rest (degrees as `so101_nudge.py` / `so101_jog.py`
+print them; the arm is placed by hand so they vary a few degrees): shoulder_pan -30 to -36, shoulder_lift -102 to -103,
+elbow_flex 98, wrist_flex 73 to 76, gripper 1.2 to 1.5. wrist_roll is free (it was +105, -163 and -76 on different days).
+
+- Rest sits at the END of two ranges: shoulder_lift at about its minimum and elbow_flex at about its maximum (the
+  calibration spans are +-104 and +-97), so from Rest the elbow can only go negative and the shoulder lift only positive.
+- Wrist flex: **+ tips the gripper down**, towards the table (it hit the table at +20 from Rest); - lifts it.
+- Supply: motors read 5.4-5.5 V idle. Torque-on (staggered motor by motor) is now clean, lowest 5.3 V. Under real load
+  (jogging the shoulder lift and elbow from Rest) those joints stopped following their commands and the supply sagged to
+  4.3 V, tripping the 4.5 V guard. 5 V is marginal for 7.4 V servos lifting the arm. `--torque-limit` (default 500, half) is
+  a free thing to raise on the arm joints; a 6 V (never above 7.4 V) supply is the proper fix.
+- Tools: `scripts/so101_nudge.py` (scripted moves, `--moves joint:deg,...`, `--hold-only`), `scripts/so101_jog.py`
+  (Xbox controller, dead-man LB, `--probe`). Both refuse over SSH and need Liam present with the 5V kill switch in reach.

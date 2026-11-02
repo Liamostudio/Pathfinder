@@ -72,14 +72,19 @@ SETTLE_FLOOR = 3.8              # a hard floor during settling: the brief torque
 STAGGER_S = 0.25                # gap between switching each motor's torque on, so the supply sees six small surges
 
 
-def arm_hold(bus, *, sleep=time.sleep) -> dict[str, float]:
+def lowest_motor(readings: dict[str, float]) -> tuple[str, float]:
+    return min(readings.items(), key=lambda kv: kv[1])
+
+
+def arm_hold(bus, *, sleep=time.sleep, torque_limit: int = TORQUE_LIMIT) -> dict[str, float]:
     """Hold every joint where it is: goals = present while torque is off, gentle settings, then torque on one by one."""
     bus.disable_torque()
     present = bus.sync_read("Present_Position")
     bus.sync_write("Goal_Position", present)
     for motor in present:
         bus.write("Acceleration", motor, ACCELERATION)
-        bus.write("Max_Torque_Limit", motor, TORQUE_LIMIT)
+        # The gripper is always capped at TORQUE_LIMIT (as LeRobot does); the other joints take `torque_limit`.
+        bus.write("Max_Torque_Limit", motor, TORQUE_LIMIT if motor == "gripper" else torque_limit)
     present = bus.sync_read("Present_Position")
     bus.sync_write("Goal_Position", present)
     for motor in list(bus.motors):
@@ -159,10 +164,10 @@ def check_moves(bus, moves) -> None:
                                  f"its calibrated range {lo:.1f} to {hi:.1f}. Try {-degrees:+g}.")
 
 
-def run_moves(bus, moves, *, sleep=time.sleep, log=print) -> list[dict]:
+def run_moves(bus, moves, *, sleep=time.sleep, log=print, torque_limit: int = TORQUE_LIMIT) -> list[dict]:
     """Hold the arm once, then for each (joint, degrees): move, hold, return. One stats dict per completed move."""
     check_moves(bus, moves)
-    start = arm_hold(bus, sleep=sleep)
+    start = arm_hold(bus, sleep=sleep, torque_limit=torque_limit)
     lowest_hold = settle(bus, sleep=sleep, log=log)
     log(f"holding; lowest motor voltage {lowest_hold:.1f} V")
     results = []
@@ -179,11 +184,11 @@ def run_moves(bus, moves, *, sleep=time.sleep, log=print) -> list[dict]:
                 bus.sync_write("Goal_Position", {joint: command})
                 sleep(PERIOD_S)
                 observed = bus.sync_read("Present_Position")[joint]
-                lowest = min(volts(bus).values())
+                motor_v, lowest = lowest_motor(volts(bus))
                 stats["min_volts"] = min(stats["min_volts"], lowest)
                 stats["max_lag_deg"] = max(stats["max_lag_deg"], abs(command - observed))
                 if lowest < MIN_VOLTS:
-                    raise NudgeAbort(f"voltage fell to {lowest:.1f} V (limit {MIN_VOLTS} V) during {joint} {degrees:+g}")
+                    raise NudgeAbort(f"voltage fell to {lowest:.1f} V on {motor_v} (limit {MIN_VOLTS} V) during {joint} {degrees:+g}")
                 lag_count = lag_count + 1 if abs(command - observed) > STALL_DEG else 0
                 if lag_count >= STALL_READS:
                     raise NudgeAbort(f"{joint} is not following its command (lag {abs(command - observed):.1f} deg)")
@@ -222,6 +227,8 @@ def main(argv=None, *, ask=input) -> None:
     p.add_argument("--id", default="lookandpick", help="name of the calibration file (the one calibrate wrote)")
     p.add_argument("--joint", default="wrist_roll", choices=NUDGE_JOINTS)
     p.add_argument("--degrees", type=float, default=3.0)
+    p.add_argument("--torque-limit", type=int, default=TORQUE_LIMIT, choices=range(100, 1001), metavar="100-1000",
+                   help=f"Max_Torque_Limit for the arm joints (1000 = full); default {TORQUE_LIMIT}. The gripper stays at {TORQUE_LIMIT}.")
     p.add_argument("--moves", help="several moves in one held session, e.g. wrist_roll:20,wrist_flex:-20 (overrides --joint/--degrees)")
     p.add_argument("--hold-only", action="store_true", help="hold the arm still for 10 s and print voltages; moves nothing")
     a = p.parse_args(argv)
@@ -255,7 +262,7 @@ def main(argv=None, *, ask=input) -> None:
         plan = ", ".join(f"{j} {d:+g}" for j, d in moves)
         if ask(f"Arm folded at rest and supported by your hand? Type MOVE to turn torque on and run: {plan}\n> ") != "MOVE":
             raise SystemExit("Not confirmed; nothing was moved.")
-        results = run_moves(robot.bus, moves)
+        results = run_moves(robot.bus, moves, torque_limit=a.torque_limit)
         print(f"Done: {len(results)} move(s). Lowest voltage {min(r['min_volts'] for r in results):.1f} V, "
               f"worst lag {max(r['max_lag_deg'] for r in results):.2f} deg.")
     except NudgeAbort as exc:
