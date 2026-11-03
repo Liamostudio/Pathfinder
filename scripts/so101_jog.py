@@ -28,9 +28,10 @@ import os
 import struct
 import sys
 import time
+from collections import deque
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from so101_nudge import (STALL_DEG, STALL_READS, TORQUE_LIMIT, NudgeAbort, RANGE_MARGIN_DEG, SupplyWatch,  # noqa: E402
+from so101_nudge import (MIN_PROGRESS_DEG, STALL_DEG, STALL_READS, TORQUE_LIMIT, NudgeAbort, RANGE_MARGIN_DEG, SupplyWatch,  # noqa: E402
                          arm_hold, joint_limits, release_all, settle, volts)
 from so101_setup import build_robot, find_ports, require_present  # noqa: E402
 
@@ -98,6 +99,7 @@ class Jog:
         self.start, self.limits = dict(start), limits
         self.goal = dict(start)
         self.lag = {j: 0 for j in JOINT_AXES}
+        self.seen = {j: deque(maxlen=STALL_READS + 1) for j in JOINT_AXES}   # recent observed angles per joint
         self.blocked = {j: 0 for j in JOINT_AXES}     # sign of the direction that stalled; 0 = free
         self.reached = {j: [v, v] for j, v in start.items()}
         self.note: str | None = None
@@ -126,7 +128,10 @@ class Jog:
                 step = 0.0
             # Only a joint being driven can be "blocked"; one merely sagging under gravity while idle is not.
             driven = step != 0.0
-            if driven and abs(present[joint] - self.goal[joint]) > STALL_DEG:
+            self.seen[joint].append(present[joint])
+            history = self.seen[joint]
+            moved = abs(history[-1] - history[0]) if len(history) > STALL_READS else float("inf")
+            if driven and abs(present[joint] - self.goal[joint]) > STALL_DEG and moved < MIN_PROGRESS_DEG:
                 self.lag[joint] += 1
             else:
                 self.lag[joint] = 0

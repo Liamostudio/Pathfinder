@@ -20,6 +20,7 @@ import argparse
 import os
 import sys
 import time
+from collections import deque
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from so101_setup import build_robot, find_ports, require_present  # noqa: E402
@@ -31,7 +32,9 @@ RANGE_MARGIN_DEG = 2.0
 STEP_DEG = 0.5
 PERIOD_S = 0.05                 # 0.5 deg / 0.05 s = 10 deg/s
 STALL_DEG = 2.0                 # abort when the joint lags its command by this much...
-STALL_READS = 4                 # ...for this many reads in a row (0.2 s); a false abort is harmless
+STALL_READS = 4                 # ...for this many reads in a row (0.2 s)...
+MIN_PROGRESS_DEG = 0.5          # ...AND the joint has moved less than this over those reads (a stiff joint that is
+                                # breaking away from rest lags for a moment but is moving; that is not a stall)
 MIN_VOLTS = 4.5                 # abort below this at the motor (supply is ~5.5 V)
 ACCELERATION = 20               # LeRobot's default is 254 (as fast as possible); gentle for bring-up
 TORQUE_LIMIT = 500              # 50 % of max, the same ceiling LeRobot uses for the gripper
@@ -205,6 +208,7 @@ def run_moves(bus, moves, *, sleep=time.sleep, log=print, torque_limit: int = TO
         stats = {"joint": joint, "degrees": degrees, "min_volts": lowest_hold, "max_lag_deg": 0.0, "start_deg": start[joint],
                  "move_min": float("inf"), "min_at_deg": None}
         lag_count = 0
+        seen = deque(maxlen=STALL_READS + 1)           # recent observed angles, to tell "stuck" from "slow to start"
 
         def go(target: float) -> None:
             nonlocal lag_count
@@ -224,7 +228,9 @@ def run_moves(bus, moves, *, sleep=time.sleep, log=print, torque_limit: int = TO
                     stats["move_min"], stats["min_at_deg"] = lowest, observed
                 stats["min_volts"] = min(stats["min_volts"], lowest)
                 stats["max_lag_deg"] = max(stats["max_lag_deg"], abs(command - observed))
-                lag_count = lag_count + 1 if abs(command - observed) > STALL_DEG else 0
+                seen.append(observed)
+                moved = abs(seen[-1] - seen[0]) if len(seen) > STALL_READS else float("inf")
+                lag_count = lag_count + 1 if abs(command - observed) > STALL_DEG and moved < MIN_PROGRESS_DEG else 0
                 if lag_count >= STALL_READS:
                     raise NudgeAbort(f"{joint} is not following its command (lag {abs(command - observed):.1f} deg)")
                 current = command

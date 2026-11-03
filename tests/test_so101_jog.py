@@ -111,3 +111,13 @@ def test_main_refuses_without_a_controller_or_terminal(monkeypatch):
     monkeypatch.setattr(jog_mod, "find_ports", lambda: ["/dev/ttyACM0"])
     with pytest.raises(SystemExit, match="interactive"):
         jog_mod.main(["--device", "/dev/null", "--port", "/dev/ttyACM0"])
+
+
+def test_a_joint_slow_to_break_away_is_not_called_blocked_when_jogging():
+    j = jog_mod.Jog(START, LIMITS)
+    present = dict(START)
+    for tick in range(40):
+        j.tick(pad(rx=1.0), present)
+        if tick >= 5:                                   # static friction for 5 ticks, then it follows 2.5 deg behind
+            present["wrist_roll"] = j.goal["wrist_roll"] - 2.5
+    assert j.blocked["wrist_roll"] == 0 and j.note is None

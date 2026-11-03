@@ -281,3 +281,34 @@ def test_trace_records_every_tick_with_all_motor_voltages_and_the_position_of_th
     nudge_mod.write_trace(trace, str(out))
     assert out.read_text().splitlines()[0].startswith("t_s,move,joint")
     assert len(out.read_text().splitlines()) == 9
+
+
+class Breakaway(FakeBus):
+    """wrist_roll sits still for its first 5 goals (static friction), then follows its goal 2.5 deg behind: slow to start, not stuck."""
+    def __init__(self):
+        super().__init__()
+        self.writes = 0
+
+    def sync_write(self, name, values):
+        if name == "Goal_Position" and set(values) == {"wrist_roll"}:
+            self.writes += 1
+            self.goal.update(values)
+            if self.writes > 5:
+                self.pos["wrist_roll"] = values["wrist_roll"] - 2.5
+            return
+        super().sync_write(name, values)
+
+
+def test_a_joint_slow_to_break_away_is_not_called_stalled():
+    nudge_mod.run_moves(Breakaway(), [("wrist_roll", 10.0)], sleep=lambda _: None, log=lambda *_: None)   # must not abort
+
+
+def test_the_breakaway_test_would_catch_the_old_any_lag_is_a_stall_behaviour(monkeypatch):
+    monkeypatch.setattr(nudge_mod, "MIN_PROGRESS_DEG", 1e9)        # progress never counts: the old, stricter rule
+    with pytest.raises(nudge_mod.NudgeAbort, match="not following"):
+        nudge_mod.run_moves(Breakaway(), [("wrist_roll", 10.0)], sleep=lambda _: None, log=lambda *_: None)
+
+
+def test_a_joint_that_never_moves_is_still_caught():
+    with pytest.raises(nudge_mod.NudgeAbort, match="not following"):
+        run(FakeBus(follow=False), degrees=5.0)
