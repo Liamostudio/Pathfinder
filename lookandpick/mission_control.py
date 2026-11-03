@@ -15,7 +15,7 @@ from pathlib import Path
 import re
 import threading
 import time
-from urllib.parse import unquote, urlsplit
+from urllib.parse import unquote, urlsplit, parse_qs
 from uuid import uuid4
 
 from .adapters.fake import FakeTracker, SimArm
@@ -154,6 +154,12 @@ def make_handler(session, workspace_service=None):
     from .workspaces.service import WorkspaceService
     from .workspaces.http import dispatch
     workspaces=workspace_service or WorkspaceService()
+    from .deck_telemetry import Telemetry, sample
+    def telemetry_event(source,command,result,latency_ms=0,**kwargs):
+        if hasattr(session,'runtime'): session.runtime.log.record(source,command,result,latency_ms,**kwargs)
+        else: session.event(source,command,result,latency_ms,**kwargs)
+    telemetry=Telemetry(telemetry_event)
+    session.telemetry=telemetry
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):
             pass
@@ -164,7 +170,7 @@ def make_handler(session, workspace_service=None):
             self.send_header('Content-Length', str(len(body)))
             self.send_header('Cache-Control', 'no-store')
             self.send_header('X-Content-Type-Options', 'nosniff')
-            self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'")
+            self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; frame-ancestors " + ("'self'" if self.path.startswith('/replay/') else "'none'"))
             self.end_headers()
             self.wfile.write(body)
 
@@ -183,8 +189,35 @@ def make_handler(session, workspace_service=None):
                 return self._json(403, {'error': 'Local requests only'})
             if dispatch(self,workspaces,'GET'):return
             path = unquote(urlsplit(self.path).path)
-            if path == '/api/state':
-                return self._json(200, session.state())
+            try:
+                if path == '/api/real-arm': return self._json(200,telemetry.snapshot())
+                if path == '/api/real-arm/joints':
+                    from .workspaces.placement import calibrated_joints
+                    data=telemetry.snapshot()
+                    if data['state']!='LIVE / READ-ONLY' or time.time()-(data['updated'] or 0)>1.5: raise ValueError('Fresh read-only telemetry is required')
+                    return self._json(200,{'joint_positions':calibrated_joints(data['motors'])})
+                if path == '/api/real-arm/sample': return self._json(200,sample())
+                if path == '/api/state': return self._json(200, session.state())
+                if path == '/api/timeline':
+                    since=int(parse_qs(urlsplit(self.path).query).get('since',['0'])[0])
+                    events=session.timeline() if hasattr(session,'timeline') else session.state()['events']
+                    return self._json(200,[e for e in events if e['id']>since])
+                if path == '/api/hand-gate':
+                    if not hasattr(session,'hand_gate'): return self._json(503,{'error':'NOT CONNECTED'})
+                    return self._json(200,session.hand_gate())
+                if path == '/api/demo-replay':
+                    if not hasattr(session,'demo_result'): raise ValueError('Run the seeded demo first')
+                    return self._json(200,session.demo_result)
+                if path == '/api/replay' and hasattr(session,'replay'): return self._json(200,session.replay())
+                if path.startswith('/api/commands/') and hasattr(session,'job'): return self._json(200,session.job(path.rsplit('/',1)[1]))
+            except (ValueError,TypeError) as exc: return self._json(400,{'error':str(exc)})
+            except (OSError,RuntimeError) as exc: return self._json(503,{'error':str(exc)})
+            if path.startswith('/replay/'):
+                filename=path.removeprefix('/replay/')
+                if filename not in {'index.html','style.css','replay.js','demo-data.js','demo.json'}:return self._json(404,{'error':'Not found'})
+                file=Path(__file__).resolve().parents[1]/'replay'/filename
+                if not file.is_file():return self._json(404,{'error':'Replay asset missing'})
+                return self._send(200,file.read_bytes(),{'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json'}[file.suffix])
             relative = 'index.html' if path == '/' else path.lstrip('/')
             file = (WEB_ROOT / relative).resolve()
             if not file.is_relative_to(WEB_ROOT.resolve()) or not file.is_file():
@@ -206,7 +239,7 @@ def make_handler(session, workspace_service=None):
             if not self._local_request():
                 return self._json(403, {'error': 'Local requests only'})
             if dispatch(self,workspaces,'POST'):return
-            if self.path != '/api/action':
+            if self.path not in ('/api/action','/api/command','/api/stop','/api/real-arm/connect','/api/real-arm/disconnect','/api/demo'):
                 return self._json(404, {'error': 'Not found'})
             if self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
                 return self._json(415, {'error': 'Expected application/json'})
@@ -217,9 +250,18 @@ def make_handler(session, workspace_service=None):
                 payload = json.loads(self.rfile.read(size))
                 if not isinstance(payload, dict):
                     raise ValueError('Expected an object')
-                self._json(200, session.action(payload))
+                if self.path == '/api/demo' and hasattr(session,'submit_demo'):result=session.submit_demo()
+                elif self.path == '/api/real-arm/connect': result=telemetry.connect(payload.get('port'))
+                elif self.path == '/api/real-arm/disconnect': result=telemetry.disconnect()
+                elif self.path == '/api/command' and hasattr(session,'submit'):
+                    result=session.submit(payload.get('text'))
+                elif self.path == '/api/stop': result=session.action({'action':'stop'})
+                else: result=session.action(payload)
+                self._json(202 if 'job_id' in result else 200,result)
             except (ValueError, TypeError) as exc:
                 self._json(400, {'error': str(exc)})
+            except (OSError,RuntimeError) as exc:
+                self._json(503, {'error': str(exc)})
     return Handler
 
 
@@ -227,9 +269,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--workspace-data',type=Path,default=Path(__file__).resolve().parents[1]/'recordings/workspaces')
+    parser.add_argument('--backend',choices=('fake','sim'),default='fake')
+    parser.add_argument('--model',choices=('fake','spark','glimmer'),default='fake')
+    parser.add_argument('--sim-url',default='http://127.0.0.1:8766')
+    parser.add_argument('--hand-gate',type=int,metavar='CAM',help='Explicitly start a real camera hand gate controlling the SIMULATED arm')
+    parser.add_argument('--intrinsics',help='Lens calibration for --hand-gate')
+    parser.add_argument('--hand-gate-status-url',help='External loopback status server; display only')
     args = parser.parse_args()
     from .workspaces.service import WorkspaceService
-    server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(MissionControl(),WorkspaceService(args.workspace_data)))
+    if args.backend=='sim':
+        from .deck_runtime import create_session
+        session=create_session(args.model,args.sim_url,hand_camera=args.hand_gate,intrinsics=args.intrinsics,status_url=args.hand_gate_status_url)
+    else: session=MissionControl()
+    server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(session,WorkspaceService(args.workspace_data)))
     print(f'Mission control: http://127.0.0.1:{server.server_port} (simulation only)', flush=True)
     try:
         server.serve_forever()
@@ -237,6 +289,8 @@ def main():
         pass
     finally:
         server.server_close()
+        if hasattr(session,'close'): session.close()
+        session.telemetry.disconnect()
 
 
 if __name__ == '__main__':

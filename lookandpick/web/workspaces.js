@@ -39,7 +39,7 @@ async function review(manifest){$('ws-review').hidden=false;$('ws-videos').hidde
  areaEditor.setContext(selected,manifest,renderer);
  if(draftRevision!==signature+'/'+manifest.draft_revision){editors(manifest);draftRevision=signature+'/'+manifest.draft_revision;}
  $('ws-units').textContent=manifest.units==='relative'?'relative scale':`user dimension / 1 layout unit = ${manifest.calibration.meters_per_map_unit.toFixed(3)} m`;
- $('ws-calibration-status').textContent=`Scale: ${manifest.calibration.scale_status}. Robot alignment: approximate. Independent of live robot calibration.`;
+ $('ws-calibration-status').textContent=`Scale: ${manifest.calibration.scale_status}. Robot alignment: ${manifest.robot.placement_status==='touch_calibrated'?'touch calibrated / visual only':'approximate'}. Not a physical safety input.`;
  $('ws-dirty').textContent=manifest.needs_rebuild?'Surface edits pending. Rebuild before saving; the photograph shows the previous fitted appearance.':'Background fitted to the current surfaces. Robot pose remains illustrative.';
  $('ws-save').disabled=manifest.needs_rebuild||['running','queued'].includes(current.job?.state);$('ws-warnings').replaceChildren(...manifest.warnings.map(w=>{const p=document.createElement('p');p.textContent='↳ '+w;return p;}));
  const previous=$('ws-version').value,versions=Array.from({length:current.revision},(_,i)=>'v'+String(i+1).padStart(4,'0'));$('ws-version').replaceChildren(...versions.map(v=>new Option(v,v)));$('ws-version').value=versions.includes(previous)?previous:versions.at(-1)||'';$('ws-activate').disabled=!versions.length;versionLink();
@@ -75,3 +75,9 @@ $('ws-videos').onclick=()=>start('previews');$('ws-preflight').onclick=capabilit
 for(const [category,words] of Object.entries(prompts)){const field=input(category,words.join(', '),()=>{},{type:'text'});field.querySelector('input').dataset.category=category;$('ws-prompts').append(field);}
 window.addEventListener('pathfinder:navigate',e=>{if(e.detail==='setup'){capabilities();list().then(refresh).catch(e=>notice(e.message));}});
 list().then(()=>selected?refresh():null).catch(e=>notice(e.message));
+
+window.addEventListener('pathfinder-state',e=>{if(e.detail.backend==='sim'&&document.body.dataset.runtimeView==='sim'){$('active-workspace-visual').hidden=true;$('synthetic-stage-panel').hidden=false;}});
+
+$('ws-measured-robot').onclick=async()=>{try{current=await api(root()+'/robot-placement',{});loaded=null;await refresh();notice('Measured base frame applied to the visual robot. Save a new version to activate it.');}catch(e){notice(e.message);}};
+api('/api/workspace-measurements').then(m=>{$('wa-marker-size').value=m.marker_size_m;$('wa-measured').checked=m.marker_size_measured;}).catch(()=>{});
+window.addEventListener('pathfinder-telemetry',async e=>{if(!$('ws-live-joints').checked||!renderer||!current?.draft)return;if(e.detail.state!=='LIVE / READ-ONLY'||Date.now()/1000-(e.detail.updated||0)>1.5){renderer.update(current.draft);return;}try{const reply=await api('/api/real-arm/joints');const manifest=structuredClone(current.draft);manifest.robot.joint_positions={...manifest.robot.joint_positions,...reply.joint_positions};renderer.update(manifest);}catch(e){notice(e.message);}});

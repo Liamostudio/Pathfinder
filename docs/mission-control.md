@@ -86,3 +86,30 @@ HTTP actions and static-path/origin boundaries. JavaScript syntax checks pass. W
 and asset inclusion pass. Browser checks covered the guided demo, blocked pick, stop/reset,
 both themes, calibration view and a 390 px layout without horizontal overflow. Local WebM
 decoding and the unsupported-recording error were checked. Webcam permission was not requested.
+
+
+## Simulator Runtime backend (3 November)
+
+Start the MuJoCo bridge with `simulation/.venv/bin/python simulation/start.py`. Then run `.venv/bin/python -m lookandpick.mission_control --backend sim --model fake`. The default backend remains the original model-free workbench. To keep both open, add `--port 8769` to the Runtime Deck. `--model spark` uses the existing configured Meta account, spend cap and CallLog; `--model glimmer` uses the existing local model configuration. Keys never enter the browser.
+
+Commands run in a worker through `Runtime.command`; `POST /api/command {"text":"..."}` immediately returns a job ID (202). Poll `GET /api/commands/<id>`. `POST /api/stop {}` bypasses the command lock and model; `GET /api/timeline?since=<id>` returns the existing CallLog schema, including cost and token counts. Reset waits until a command has returned. The UI keeps polling while commands run, and STOP remains enabled. The schematic uses simulator state. Use “Saved workspace / voxel editor” to inspect the independent visual workspace.
+
+### Hand gate
+
+The hand-gate panel reads `GET /api/hand-gate`, shows scale, nearest distance, hands, fps, p50/p95 latency and age, and marks observations STALE after 150 ms. Missing/invalid sources show NOT CONNECTED. Without a camera gate the Runtime backend explicitly labels its feed as simulation ground truth; it has no measured camera latency.
+
+Claude's live gate can run **on the simulated arm** in the same process using `--backend sim --hand-gate 2 --intrinsics calibration/ace-pro.json` in the hands-capable environment. Starting a camera is explicit; no camera or hardware is opened by default. RuntimeSession accepts `runtime.hand_gate_status` directly. Alternatively `--hand-gate-status-url http://127.0.0.1:8768` proxies Claude's read-only status server (including `python -m lookandpick.status_server --fake`). External status is labelled display-only and does not impose a gate on this Deck's arm. “Preview all gate states” is a labelled UI fixture, never a safety source.
+
+### Real-arm panel and traces
+
+The real-arm view starts NOT CONNECTED. Only “Open read-only telemetry” opens a named serial port. It reads IDs, positions, voltage and temperatures, draws calibrated ranges and a Rest tick, leaves torque state unknown, and never calls a follower or motor-writing method. It checks for existing port users and reserves an opened port with kernel exclusion. Failures close the port; reconnection is manual. Disconnect before running a terminal bench tool. Actual hardware telemetry/port-contention acceptance still needs a bench check; automated verification uses fake buses and never opens the arm.
+
+Load a bench `--trace` CSV locally for per-move voltage/time and voltage/observed-angle charts, coloured motor legends and lowest-point annotations. Malformed data produces a visible error. The recorded sample demonstrates every joint without serial access. Telemetry connection and under-voltage events use source `real_arm` in the shared timeline.
+
+### Replay and filming demo
+
+`replay/` is a static offline-capable submission player; `demo.json` contains one deterministic MuJoCo run and `demo-data.js` embeds the same data for file-folder playback. It includes the trajectory, model/tool timeline and hand-gate states. No hosted deployment has been made. Open `/replay/index.html` or serve the folder with `python3 -m http.server`.
+
+On the Runtime backend, Run demo builds the seeded MuJoCo scenario in an isolated simulation subprocess, then **plays the recording**, explicitly labelled. This prevents wall-clock camera/model jitter from changing the filming sequence. It uses a scripted model, an injected hand which slows/stops/resumes the arm during pick/place, and STOP during a second move. Three independent exporter runs must match exactly. It does not run a real camera or hardware. STOP also cancels demo generation. The original fake workbench retains its simple scripted button demo.
+
+`GET /api/replay` exports Runtime trajectory samples and CallLog events from the current session. The export-session button downloads this replay in Runtime mode. Recorded simulated scenes contain no source photographs. Regenerate the packaged demo with `simulation/.venv/bin/python -m lookandpick.deck_demo --output replay/demo.json --embed`.

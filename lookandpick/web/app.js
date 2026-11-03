@@ -10,6 +10,7 @@ let demoGeneration = 0;
 let filter = 'all';
 let page = 'workspace';
 let viewpoint = 'perspective';
+let runtimeView='sim';
 let media = 'synthetic';
 let stream = null;
 let recordingUrl = null;
@@ -29,7 +30,7 @@ function toast(message) {
 
 function connection(ok) {
   connected = ok;
-  $('#connection-label').textContent = ok ? 'local simulator' : 'server disconnected';
+  $('#connection-label').textContent = ok ? (state?.backend==='sim' ? `sim runtime / ${state.model}` : 'local simulator') : 'server disconnected';
   $('#connection-led').classList.toggle('offline', !ok);
   updateButtons();
 }
@@ -38,16 +39,28 @@ async function request(action, fields = {}, quiet = false) {
   if (!quiet) pending = true;
   updateButtons();
   try {
-    const response = await fetch('/api/action', {
+    const route=action==='stop'?'/api/stop':action==='command'&&state?.backend==='sim'?'/api/command':'/api/action';
+    const response = await fetch(route, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, ...fields }), signal: AbortSignal.timeout(6000),
     });
-    const data = await response.json();
+    let data = await response.json();
     if (!response.ok) throw new Error(data.error || 'The action could not be completed');
+    if(data.job_id){
+      const jobId=data.job_id;
+      for(let n=0;n<2400;n++){
+        await new Promise(resolve=>setTimeout(resolve,100));
+        const reply=await fetch(`/api/commands/${jobId}`,{signal:AbortSignal.timeout(4000)});
+        const job=await reply.json(); if(!reply.ok)throw new Error(job.error||'Command unavailable');
+        if(job.status!=='running'){if(job.status==='error')throw new Error(job.error||job.result?.error||'Command failed');break;}
+        if(n===2399)throw new Error('Command is still running. STOP remains available.');
+      }
+      const reply=await fetch('/api/state');data=await reply.json();
+    }
     connection(true);
     acceptState(data);
     if (!quiet && ['pick', 'place', 'command'].includes(action)) {
-      toast(data.events[data.events.length - 1].output);
+      toast(data.events.at(-1)?.output||'Command complete');
     }
     return data;
   } catch (error) {
@@ -62,7 +75,7 @@ async function request(action, fields = {}, quiet = false) {
 
 async function poll() {
   try {
-    if (!pending) {
+    {
       const response = await fetch('/api/state', { signal: AbortSignal.timeout(4000) });
       if (!response.ok) throw new Error('Session unavailable');
       acceptState(await response.json());
@@ -74,7 +87,7 @@ async function poll() {
 
 function updateButtons() {
   const stopped = state?.stopped || !connected;
-  const busy = pending || demoRunning;
+  const busy = pending || demoRunning || state?.busy;
   $('#pick').disabled = stopped || busy || !!state?.gripping;
   $('#place').disabled = stopped || busy || !state?.gripping;
   $('#run-demo').disabled = !connected || pending || demoRunning;
@@ -88,7 +101,7 @@ function updateButtons() {
 function acceptState(next) {
   if (state && next.instance_id === state.instance_id && next.revision < state.revision) return;
   state = next;
-  const selected = state.scene.objects.find(object => object.id === state.selected);
+  const selected = state.scene.objects.find(object => object.id === state.selected)||state.scene.objects[0]||{label:'no target',position:[0,0,0]};
   $('#speed').textContent = Math.round(state.speed_scale * 100);
   $('#speed-fill').style.width = `${state.speed_scale * 100}%`;
   const gate = state.stopped ? 'stop latched' : state.speed_scale === 0 ? 'blocked' : state.speed_scale < 1 ? 'slowing' : 'clear';
@@ -112,6 +125,13 @@ function acceptState(next) {
     button.classList.toggle('active', active);
     button.setAttribute('aria-pressed', active);
   });
+  if(state.backend==='sim'){
+    document.body.dataset.runtimeView=runtimeView;$('#synthetic-stage-panel').hidden=runtimeView!=='sim';$('#active-workspace-visual').hidden=runtimeView==='sim';$('#preview-note').hidden=runtimeView!=='sim';
+    $('.command-label .caption').textContent='runtime command';$('.command-label .micro').textContent=state.model;
+    $('#stage-label').textContent='● MuJoCo simulation / schematic';$('#stage-subtitle').textContent='Runtime → constrained tools → simulator';
+    const spark=$('.integrations .rack-row:nth-of-type(3) .rack-tag');if(spark)spark.textContent=state.model;
+  }
+  window.dispatchEvent(new CustomEvent('pathfinder-state',{detail:state}));
   renderObjects();
   renderEvents();
   updateButtons();
@@ -152,7 +172,7 @@ function renderObjects() {
 }
 
 function renderEvents() {
-  const events = state.events.filter(event => filter === 'all' || (filter === 'models' ? event.scripted : ['tools', 'safety'].includes(event.source)));
+  const events = state.events.filter(event => filter === 'all' || (filter === 'models' ? /Muse|SAM|model/i.test(event.source) : ['tools', 'safety','real_arm'].includes(event.source.toLowerCase())));
   const signature = JSON.stringify([events, filter]);
   if (signature === eventSignature) return;
   eventSignature = signature;
@@ -183,7 +203,7 @@ function renderEvents() {
     copy.append(input, output);
     const latency = document.createElement('span');
     latency.className = 'event-latency';
-    latency.textContent = event.scripted ? 'demo cue' : `${event.latency_ms.toFixed(1)} ms`;
+    latency.textContent = `${Number(event.latency_ms||0).toFixed(1)} ms${'cost_usd' in event?` · $${Number(event.cost_usd).toFixed(4)}`:''}${event.tokens&&Object.keys(event.tokens).length?` · ${JSON.stringify(event.tokens)} tokens`:''}${event.scripted?' · scripted':''}`;
     row.append(stamp, source, copy, latency);
     return row;
   }));
@@ -199,6 +219,7 @@ function line(a, b, attributes = '') {
   return `<line x1="${p[0]}" y1="${p[1]}" x2="${q[0]}" y2="${q[1]}" ${attributes}/>`;
 }
 function label(point, text, selected = false) {
+  text=String(text).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const [x, y] = project(point);
   return `<g transform="translate(${x - 43},${y - 44})"><rect width="105" height="23" rx="5" fill="${selected ? '#D5FD51' : '#252824'}" stroke="${selected ? '#D5FD51' : '#757c70'}" stroke-width=".7"/><text x="9" y="15" fill="${selected ? '#161616' : '#f2f2ef'}" font-family="Space Mono,monospace" font-size="9">${text}</text></g>`;
 }
@@ -213,7 +234,7 @@ function drawScene() {
       return;
     }
     sceneSignature = signature;
-    const selected = state.scene.objects.find(object => object.id === state.selected);
+    const selected = state.scene.objects.find(object => object.id === state.selected)||state.scene.objects[0]||{label:'no target',position:[0,0,0]};
     let svg = '<defs><pattern id="floor-dots" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".65" fill="#62695d" opacity=".35"/></pattern><filter id="soft-shadow"><feGaussianBlur stdDeviation="7"/></filter></defs><rect width="960" height="560" fill="url(#floor-dots)"/>';
     svg += `<polygon points="${points([[-.35, -.35], [.5, -.35], [.5, .36], [-.35, .36]])}" fill="#a9ada3" stroke="#c9cdc0" stroke-width="1.5"/>`;
     for (let x = -.3; x <= .501; x += .05) svg += line([x, -.35], [x, .36], 'stroke="#7d8574" stroke-width=".7" opacity=".35"');
@@ -233,9 +254,9 @@ function drawScene() {
       const [x,y,z] = object.held ? visualArm : object.position;
       const selectedObject = object.id === state.selected;
       const p = project([x,y,z]);
-      if (object.id === 'obj1') {
+      if (object.label.toLowerCase().includes('cube')) {
         const h = .045, r = .027;
-        svg += `<polygon points="${points([[x-r,y-r,z],[x+r,y-r,z],[x+r,y-r,z+h],[x-r,y-r,z+h]])}" fill="#9e5149" stroke="#633c35" stroke-width="1"/><polygon points="${points([[x+r,y-r,z],[x+r,y+r,z],[x+r,y+r,z+h],[x+r,y-r,z+h]])}" fill="#b76255" stroke="#633c35" stroke-width="1"/><polygon points="${points([[x-r,y-r,z+h],[x+r,y-r,z+h],[x+r,y+r,z+h],[x-r,y+r,z+h]])}" fill="#d17a6b" stroke="#633c35" stroke-width="1"/>`;
+        svg += `<polygon points="${points([[x-r,y-r,z],[x+r,y-r,z],[x+r,y-r,z+h],[x-r,y-r,z+h]])}" fill="${object.id==='obj1'?'#9e5149':'#487687'}" stroke="#633c35" stroke-width="1"/><polygon points="${points([[x+r,y-r,z],[x+r,y+r,z],[x+r,y+r,z+h],[x+r,y-r,z+h]])}" fill="${object.id==='obj1'?'#b76255':'#6297aa'}" stroke="#633c35" stroke-width="1"/><polygon points="${points([[x-r,y-r,z+h],[x+r,y-r,z+h],[x+r,y+r,z+h],[x-r,y+r,z+h]])}" fill="${object.id==='obj1'?'#d17a6b':'#8db8c8'}" stroke="#633c35" stroke-width="1"/>`;
       } else {
         svg += `<ellipse cx="${p[0]}" cy="${p[1]}" rx="20" ry="8" fill="#35484f"/><path d="M${p[0]-20} ${p[1]-26}v26c0 12 40 12 40 0v-26" fill="#64828a" stroke="#3a545c" stroke-width="1.5"/><ellipse cx="${p[0]}" cy="${p[1]-26}" rx="20" ry="8" fill="#9aadb0" stroke="#3a545c" stroke-width="1.5"/><ellipse cx="${p[0]}" cy="${p[1]-26}" rx="14" ry="5" fill="#40585c"/><path d="M${p[0]+20} ${p[1]-20}c23-3 25 20 0 20" stroke="#54747e" stroke-width="7" fill="none"/>`;
       }
@@ -272,8 +293,9 @@ function showPage(next) {
   page = next;
   $('#workspace').hidden = next !== 'workspace';
   $('#calibration').hidden = next !== 'calibration';
+  $('#real-arm').hidden=next!=='real-arm';
   $('#workspace-setup').hidden = next !== 'setup';
-  $('#timeline').hidden = next === 'calibration' || next === 'setup';
+  $('#timeline').hidden = ['calibration','setup','real-arm'].includes(next);
   window.dispatchEvent(new CustomEvent('pathfinder:navigate',{detail:next}));
   $$('[data-page]').forEach(button => {
     button.classList.toggle('active', button.dataset.page === page);
@@ -307,6 +329,7 @@ function showMedia(next) {
 }
 
 async function runDemo() {
+  if(state?.backend==='sim'){await runRuntimeDemo();return;}
   const generation = ++demoGeneration;
   demoRunning = true;
   updateButtons();
@@ -337,9 +360,28 @@ async function runDemo() {
   }
 }
 
+async function runRuntimeDemo(){
+ const generation=++demoGeneration;demoRunning=true;pending=true;updateButtons();showPage('workspace');$('#show-sim-view').click();
+ try{
+  const reply=await fetch('/api/demo',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}),job=await reply.json();if(!reply.ok)throw Error(job.error);
+  toast('Building the seeded MuJoCo recording. Playback will be labelled as a replay.');
+  for(let i=0;i<900;i++){
+   if(generation!==demoGeneration)return;
+   const r=await fetch(`/api/commands/${job.job_id}`),status=await r.json();if(!r.ok)throw Error(status.error);
+   if(status.status==='error')throw Error(status.error);
+   if(status.status==='completed'){
+    $('#runtime-replay')?.remove();const frame=document.createElement('iframe');frame.id='runtime-replay';frame.title='Recorded seeded simulation demo';frame.src='/replay/index.html?source=/api/demo-replay&autoplay=1';$('.stage-media').append(frame);toast('Seeded demo playback / pre-recorded simulation.');return;
+   }
+   await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  throw Error('Demo is still running; STOP remains available.');
+ }catch(e){toast(e.message);}finally{if(generation===demoGeneration){demoRunning=false;pending=false;updateButtons();}}
+}
+
 async function stop() {
   ++demoGeneration;
   demoRunning = false;
+  pending=false;$('#runtime-replay')?.remove();
   await request('stop', {}, true);
   toast('Stop latched. Start a new simulation to reset.');
 }
@@ -348,7 +390,7 @@ $('#pick').addEventListener('click', () => request('pick').catch(() => {}));
 $('#place').addEventListener('click', () => request('place').catch(() => {}));
 $('#stop').addEventListener('click', () => stop().catch(() => {}));
 $('#reset').addEventListener('click', () => { ++demoGeneration; demoRunning = false; request('reset').then(() => toast('New simulation ready.')).catch(() => {}); });
-$('#run-demo').addEventListener('click', runDemo);
+$('#run-demo').addEventListener('click',()=>runDemo().catch(e=>toast(e.message)));
 $$('[data-hand]').forEach(button => button.addEventListener('click', () => request('hand', { mode: button.dataset.hand }).catch(() => {})));
 $$('[data-page]').forEach(button => button.addEventListener('click', () => showPage(button.dataset.page)));
 $$('[data-view]').forEach(button => button.addEventListener('click', () => {
@@ -360,7 +402,11 @@ $$('[data-filter]').forEach(button => button.addEventListener('click', () => {
   $$('[data-filter]').forEach(item => item.classList.toggle('active',item === button));
   if (state) renderEvents();
 }));
+$('#show-sim-view').onclick=()=>{runtimeView='sim';document.body.dataset.runtimeView='sim';$('#synthetic-stage-panel').hidden=false;$('#active-workspace-visual').hidden=true;};
+$('#show-saved-view').onclick=()=>{runtimeView='saved';document.body.dataset.runtimeView='saved';$('#synthetic-stage-panel').hidden=true;$('#active-workspace-visual').hidden=false;};
 $('#command-form').addEventListener('submit', event => {
+  if(state?.backend==='sim')$('#show-sim-view').click();
+  $('#runtime-replay')?.remove();
   event.preventDefault();
   const text = $('#command').value.trim();
   if (text && !pending && !demoRunning && !state?.stopped) request('command', { text }).then(() => { $('#command').value = ''; }).catch(() => {});
@@ -398,9 +444,11 @@ $('#recording').addEventListener('change', event => {
   event.target.value = '';
 });
 $('#recording-video').addEventListener('error', () => { toast('This recording could not be played. Try a browser-compatible MP4 or WebM.'); stopMedia(); showMedia('synthetic'); });
-$('#export').addEventListener('click', () => {
+$('#export').addEventListener('click', async () => {
   if (!state) return;
-  const url = URL.createObjectURL(new Blob([JSON.stringify({ exported_at: new Date().toISOString(), ...state }, null, 2)], { type: 'application/json' }));
+  let exported={exported_at:new Date().toISOString(),...state};
+  if(state.backend==='sim'){try{const r=await fetch('/api/replay');if(!r.ok)throw Error('Replay unavailable');exported=await r.json();}catch(e){toast(e.message);return;}}
+  const url = URL.createObjectURL(new Blob([JSON.stringify(exported, null, 2)], { type: 'application/json' }));
   const link = document.createElement('a');
   link.href = url; link.download = `pathfinder-session-${new Date().toISOString().replaceAll(':','-')}.json`; link.click();
   setTimeout(() => URL.revokeObjectURL(url),1000);

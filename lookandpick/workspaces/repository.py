@@ -89,15 +89,17 @@ class Repository:
             if 'robot' in patch:
                 if not isinstance(patch['robot'],dict) or set(patch['robot'])-{'translation','rotation','scale','joint_positions','visible'}:raise ValueError('Invalid robot correction')
                 draft['robot'].update(patch['robot'])
+                if set(patch['robot']) & {'translation','rotation','scale'}:draft['robot']['placement_status']='illustrative'
             if 'physical_width_m' in patch:
                 width=patch['physical_width_m']
                 draft['calibration']['meters_per_map_unit']=None if width is None else number(width,.01,100)/draft['surfaces'][0]['width']
-            if 'surfaces' in patch and patch['surfaces']!=value['draft']['surfaces']:draft['marker_alignment']=None
+            if 'surfaces' in patch and patch['surfaces']!=value['draft']['surfaces']:
+                draft['marker_alignment']=None;draft['robot']['placement_status']='illustrative'
             if draft.get('working_area') and 'surfaces' in patch:draft['working_area']['base']=draft['surfaces'][0]['height']
             draft=validate_draft(draft)
             scale=draft['calibration']['meters_per_map_unit'];draft['units']='relative' if scale is None else 'metres'
             draft['calibration']['scale_status']='relative' if scale is None else 'user_dimension'
-            draft['calibration']['robot_alignment_status']='approximate'
+            draft['calibration']['robot_alignment_status']='touch_calibrated' if draft['robot'].get('placement_status')=='touch_calibrated' else 'approximate'
             frame=copy.deepcopy(draft['frames']['canonical_from_map'])
             for i in range(3):frame[i]=[v*(scale or 1) for v in frame[i]]
             draft['frames']['workspace_from_map']=frame

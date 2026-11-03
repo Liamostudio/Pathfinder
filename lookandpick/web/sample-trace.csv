@@ -1,0 +1,9 @@
+t_s,move,joint,command_deg,observed_deg,v_shoulder_pan,v_shoulder_lift,v_elbow_flex,v_wrist_flex,v_wrist_roll,v_gripper
+0.05,wrist_roll+20,wrist_roll,1,0.7,5.4,5.4,5.4,5.4,5.4,5.4
+0.10,wrist_roll+20,wrist_roll,2,1.6,5.4,5.3,5.3,5.3,5.2,5.3
+0.15,wrist_roll+20,wrist_roll,3,2.8,5.4,5.4,5.3,5.3,5.1,5.3
+0.20,wrist_roll+20,wrist_roll,4,3.8,5.4,5.4,5.4,5.3,5.4,5.4
+0.25,elbow_flex-20,elbow_flex,98,98,5.4,5.4,5.4,5.4,5.4,5.4
+0.30,elbow_flex-20,elbow_flex,97,97.8,5.4,5.2,5.0,5.2,5.3,5.3
+0.35,elbow_flex-20,elbow_flex,96,97,5.4,5.0,4.4,4.9,5.2,5.3
+0.40,elbow_flex-20,elbow_flex,95,95.8,5.4,5.3,5.2,5.2,5.3,5.4

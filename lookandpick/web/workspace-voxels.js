@@ -25,11 +25,11 @@ export function rowIndices(area,index,axis){const shape=gridShape(area),c=cellCo
 export function edgeAxis(corner,next){const v=[[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]];return v[corner].findIndex((x,i)=>x!==v[next][i]);}
 export function scaledCorners(area,index,size){const centre=cellCentre(area,index);return cellCorners(area,index).map(p=>p.map((v,i)=>centre[i]+(v-centre[i])*size));}
 export function rayBox(origin,direction,low,high){let near=0,far=Infinity;for(let i=0;i<3;i++){if(Math.abs(direction[i])<1e-10){if(origin[i]<low[i]||origin[i]>high[i])return null;}else{const a=(low[i]-origin[i])/direction[i],b=(high[i]-origin[i])/direction[i];near=Math.max(near,Math.min(a,b));far=Math.min(far,Math.max(a,b));if(near>far)return null;}}return far>=0?near:null;}
-export function pickVoxel(area,origin,direction,sizes=null,preferred=null){
+export function pickVoxel(area,origin,direction,sizes=null,preferred=null,allowed=null){
  const t=area.yaw*Math.PI/180,c=Math.cos(t),s=Math.sin(t),dx=origin[0]-area.centre[0],dy=origin[1]-area.centre[1],o=[c*dx+s*dy,-s*dx+c*dy,origin[2]-area.base],d=[c*direction[0]+s*direction[1],-s*direction[0]+c*direction[1],direction[2]],shape=gridShape(area),count=shape.reduce((a,b)=>a*b,1);let best=null;
  const hit=index=>{const dimensions=[area.width,area.depth,area.height],coords=cellCoordinates(area,index),low=coords.map(v=>v*area.cell_size),high=coords.map((v,i)=>Math.min(dimensions[i],(v+1)*area.cell_size)),p=low.map((v,i)=>(v+high[i])/2-(i<2?dimensions[i]/2:0)),half=high.map((v,i)=>(v-low[i])*(sizes?.[index]??.5)/2);return rayBox(o,d,p.map((v,i)=>v-half[i]),p.map((v,i)=>v+half[i]));};
- if(preferred!==null&&preferred>=0&&preferred<count){const distance=hit(preferred);if(distance!==null)return {index:preferred,distance};}
- for(let i=0;i<count;i++){const distance=hit(i);if(distance!==null&&(!best||distance<best.distance))best={index:i,distance};}return best;
+ if(preferred!==null&&preferred>=0&&preferred<count&&(!allowed||allowed.has(preferred))){const distance=hit(preferred);if(distance!==null)return {index:preferred,distance};}
+ for(let i=0;i<count;i++){if(allowed&&!allowed.has(i))continue;const distance=hit(i);if(distance!==null&&(!best||distance<best.distance))best={index:i,distance};}return best;
 }
 export function springStep(value,velocity,target,dt,reduced=false){if(reduced)return [target,0];dt=Math.min(.034,Math.max(0,dt));velocity+=(200*(target-value)-12*velocity)*dt;value+=velocity*dt;return [Math.max(.30,Math.min(1,value)),velocity];}
 export function fidelityCellSize(area,budget,units=1){
@@ -38,3 +38,6 @@ export function fidelityCellSize(area,budget,units=1){
  for(let i=0;i<45;i++){const middle=(low+high)/2;if(count(middle)>budget)low=middle;else high=middle;}
  const step=Math.max(.00001,.001*units);return Math.min(1,Math.max(.005,Math.ceil((high-1e-9)/step)*step));
 }
+export function sliceIndices(area,axis,layer){const shape=gridShape(area);if(!Number.isInteger(layer)||layer<0||layer>=shape[axis])return [];return Array.from({length:shape.reduce((a,b)=>a*b,1)},(_,i)=>i).filter(i=>cellCoordinates(area,i)[axis]===layer);}
+export function cameraAxisCoordinate(area,origin,axis){const t=area.yaw*Math.PI/180,x=origin[0]-area.centre[0],y=origin[1]-area.centre[1];return axis===0?Math.cos(t)*x+Math.sin(t)*y+area.width/2:axis===1?-Math.sin(t)*x+Math.cos(t)*y+area.depth/2:origin[2]-area.base;}
+export function sliceVisible(area,index,axis,layer,camera){const middle=Math.min([area.width,area.depth,area.height][axis],(layer+.5)*area.cell_size),side=cameraAxisCoordinate(area,camera,axis)>=middle?1:-1;return (cellCoordinates(area,index)[axis]-layer)*side<=0;}

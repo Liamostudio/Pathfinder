@@ -63,7 +63,7 @@ def compose(folder,run,paths,config,previous=None):
     with np.load(paths['geometry']/'predictions.npz',allow_pickle=False) as data:
         atomic_json(output/'camera-frames.json',{k:data[k].tolist() for k in ('extrinsics','intrinsics','full_intrinsics','image_transforms')})
     assets['camera-frames.json']=rel(output/'camera-frames.json')
-    return {'schema_version':1,'id':folder.name,'name':read_json(folder/'workspace.json')['name'],'revision':0,'units':'relative',
+    draft={'schema_version':1,'id':folder.name,'name':read_json(folder/'workspace.json')['name'],'revision':0,'units':'relative',
         'calibration':{'scale_status':'relative','robot_alignment_status':'approximate','meters_per_map_unit':None},
         'frames':{'canonical_from_map':layout['canonical_from_map'],'workspace_from_map':layout['canonical_from_map'],'gaussian_normalization':scene['normalization'],
                   'camera_convention':'OpenCV +X right, +Y down, +Z forward; world-to-camera extrinsics','image_transform':'K_model = image_transform @ K_full'},
@@ -74,6 +74,13 @@ def compose(folder,run,paths,config,previous=None):
         'settings':{k:v for k,v in config.items() if k!='canonical_from_map'},'previews':previews,'pipeline_version':PIPELINE,'run_id':run,'needs_rebuild':False,
         'warnings':surface['assumptions']+scene.get('warnings',[])+['CAD pose is illustrative; no live robot calibration or physical motion is enabled.','Photographic inspection uses degree-zero colour; full-SH videos use degree-one colour.','Observed object samples are partial and may contain duplicates.'],
         'evaluation':scene['training'].get('view_metrics',[])}
+
+    if previous and previous.get('marker_alignment') and previous['frames']['canonical_from_map']==layout['canonical_from_map']:
+        draft['marker_alignment']=copy.deepcopy(previous['marker_alignment'])
+        from .placement import measured_placement
+        try:draft=measured_placement(draft)
+        except (ValueError,KeyError,FileNotFoundError):pass
+    return draft
 
 
 def main():

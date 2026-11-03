@@ -10,7 +10,7 @@ Entry for the Meta Global AI Developer Hackathon (indie track, "Push the Frontie
 
 ## Built during the hackathon
 
-New work started on **26 October 2026**, straight after the kickoff call. The first commit in this repo is the start point; nothing here predates it.
+Project-authored work started on **26 October 2026**, straight after the kickoff call. The first commit is the start point. Upstream libraries, models and robot assets predate the event and are credited separately below.
 
 - World state, safety layer (speed-and-separation, stop latch) and the orchestrator tool surface
 - Adapter interfaces with fake implementations for development against recorded footage
@@ -47,9 +47,9 @@ Model weights, third-party source caches, original workspace photos, API keys an
 - "Stop" bypasses everything.
 - The real arm is only ever powered with a person present and the 5V kill switch in reach.
 
-The current implementation checks before simulated moves and gripper actions. Continuous
-hand monitoring, detector-health checks, full-arm geometry and a real hardware adapter are
-still to be built. See the [code audit](docs/audit-2026-10-27.md) for remaining requirements.
+The original fake workbench checks before simulated moves and gripper actions. The optional
+MuJoCo Runtime backend has simulator separation checks and supports the independent live
+hand watchdog; physical full-arm geometry and end-to-end bench acceptance remain pending. See the [code audit](docs/audit-2026-10-27.md) for remaining requirements.
 
 ## Development
 
@@ -76,6 +76,8 @@ The SAM 3.1 scripts need Meta's code, installed separately outside this repo, an
 Open **http://127.0.0.1:8765** and click **play demo**. Uses the existing simulator and safety
 gate; no GPU, API key or frontend build needed. Webcam and local recording previews are
 available, with no detection applied. Robot actions use synthetic state; physical hardware is not connected.
+
+For the MuJoCo Runtime and typed orchestrator commands, add `--backend sim --model fake` (or `--model spark` with your configured Meta key). Start `simulation/start.py` first. STOP remains available during a command. Deck also has a read-only arm panel, local CSV trace charts and a [static submission replay](replay/README.md).
 
 Choose **set up workspace** for local photo/video reconstruction with MapAnything,
 SAM 3.1 and gsplat, editable surfaces and a separate lime SO-101. Save and activate

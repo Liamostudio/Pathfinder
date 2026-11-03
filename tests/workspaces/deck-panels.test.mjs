@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {gateView,parseTrace} from '../../lookandpick/web/deck-panels.js';
+const base={scale:1,nearest_m:null,hands:0,fps:30,latency_ms:{p50:20,p95:30},stale_s:0,updated:10};
+for(const state of ['clear','slow','stop','latched','stale'])assert.equal(gateView({...base,state},10).state,state.toUpperCase());
+assert.equal(gateView({...base,state:'clear'},10.151).state,'STALE');assert.equal(gateView(null).state,'NOT CONNECTED');
+const h='t_s,move,joint,command_deg,observed_deg,v_wrist_roll\n';
+assert.equal(parseTrace(h+'0.1,roll,wrist_roll,1,0.8,5.3\n0.2,roll,wrist_roll,2,1.8,4.7')[0].rows.length,2);
+assert.throws(()=>parseTrace('bad data'));assert.throws(()=>parseTrace(h+'0.1,roll,wrist_roll,1,0.8,NaN'));
+assert.throws(()=>parseTrace(h+'0.2,roll,wrist_roll,1,0.8,5\n0.1,roll,wrist_roll,1,0.8,5'));
+console.log('Gate states, freshness, CSV parsing and malformed traces passed.');

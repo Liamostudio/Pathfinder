@@ -31,9 +31,10 @@ size as the pointer approaches, then settle back slightly. Pulling the volume's
 height handle or dragging the camera upwards briefly reveals all cubes. Reduced-motion preferences disable the
 spring animation.
 
-Click a cube vertex, then click an X, Y or Z edge to select that full voxel row.
-Right-click returns from the selected row to axis choice; right-click again
-returns to vertex selection. Row buttons block or unblock the selected row.
+Click a cube vertex, then an X, Y or Z button to browse perpendicular layers.
+Click to freeze a layer and select individual cells. Back returns to moving
+layer selection, then axis choice, then vertex selection. Block/unblock controls
+apply to the selected slice or single voxel.
 Double-click directly toggles the individual voxel under the pointer.
 
 **Edit layout** uses green for manually unblocked cells and red for blocked cells.
@@ -156,3 +157,12 @@ photo: warm inference approximately 43–76 ms, no person/hand detected. That is
 a real-person detection accuracy or physical safety test. The existing source
 photos detect marker 0, but their estimated intrinsics and nominal 120 mm marker
 size do not establish calibrated physical accuracy.
+
+
+## Slice picker and viewport (3 November)
+
+The active and setup canvas use a square aspect ratio. Click a vertex, then one of the small labelled X/Y/Z buttons. The chosen axis remains visible and the other two hide. Moving the pointer along its projected direction changes the highlighted perpendicular slice. All cells in that slice are selected; cubes on the camera side of its plane are hidden until you back out. Cells behind the plane remain visible. Double-clicking targets only the selected slice and preserves picker mode. Right-click or Back returns to axis choice, then vertex choice; ordinary rendering returns. Slider and 32-pixel +/−/Back targets support touch. Block/unblock buttons apply to the whole selected slice. Selection/clipping are visual only; manual edits never clear live sensor evidence.
+
+Liam confirmed the **black marker square is 120 mm**, plate 160 mm, on 3 November. New anchor controls default to that measured value. Applying the measured base frame uses the checked `workspace_bridge.robot_placement` and local tip-touch calibration, retaining editable visual fields. New versions preserve the calibration provenance; existing saved versions are not rewritten. Rebuilding with unchanged canonical geometry can retain placement. Changing table geometry or manually changing the base transform returns the visual placement to illustrative. Real joint angles can be previewed from explicit read-only telemetry with `urdf_joint_radians`; stale/disconnected telemetry returns to the saved visual pose. The voxel path API remains advisory and is never invoked by Runtime or motion tools.
+
+Click once while moving through slices to freeze the selected layer. Pointer movement then picks cells only in that plane, without changing the layer. Click a cell to select it (bulk controls then apply to that single voxel), or double-click to toggle its manual restriction. The slider and +/− controls are disabled while frozen. Back/right-click: frozen cells → moving layer selection → axis selection → vertex selection. Front-side clipping stays active through both layer stages.

@@ -67,6 +67,9 @@ def dispatch(handler,service,method):
     try:
         if method=='GET' and path=='/workspace-viewer.js':
             handler._send(200,(ROOT/'workspace_splat/web/viewer.js').read_bytes(),'text/javascript; charset=utf-8');return True
+        if method=='GET' and path=='/api/workspace-measurements':
+            from .placement import MARKER_MEASUREMENT
+            handler._json(200,MARKER_MEASUREMENT);return True
         if method=='GET' and path=='/api/robot-description':handler._json(200,robot_description());return True
         if method=='GET' and len(parts)==3 and parts[:2]==['api','robot-assets']:
             allowed={v['file'] for v in robot_description()['visuals']}
@@ -89,6 +92,12 @@ def dispatch(handler,service,method):
             if len(parts)==3 and method=='GET':handler._json(200,service.get(key));return True
             if len(parts)==4:
                 action=parts[3]
+                if action=='robot-placement' and method=='POST':
+                    body(handler)
+                    from .placement import measured_placement
+                    with service.repo.lock:
+                        value=service.repo.load(key);value['draft']=measured_placement(value['draft']);value['draft']['draft_revision']=value['draft'].get('draft_revision',0)+1;service.repo.write(value)
+                    handler._json(200,service.get(key));return True
                 if action=='voxels' and method=='GET':handler._json(200,service.areas.snapshot(key));return True
                 if action=='voxel-observations' and method=='POST':handler._json(200,service.areas.observe(key,body(handler)));return True
                 if action=='voxel-edits' and method=='POST':handler._json(200,service.areas.edit(key,body(handler)));return True

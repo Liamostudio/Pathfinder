@@ -109,7 +109,11 @@ class WorkAreas:
         with self.service.repo.lock:
             value=self.service.repo.load(key)
             if value['draft']['run_id']!=revision:raise ValueError('Workspace changed during alignment; try again')
-            value['draft']['marker_alignment']=anchor;value['draft']['draft_revision']=value['draft'].get('draft_revision',0)+1;self.service.repo.write(value)
+            value['draft']['marker_alignment']=anchor
+            from .placement import measured_placement
+            try:value['draft']=measured_placement(value['draft'])
+            except (ValueError,KeyError,FileNotFoundError):pass
+            value['draft']['draft_revision']=value['draft'].get('draft_revision',0)+1;self.service.repo.write(value)
         self.reset(key);return self.service.get(key)
 
     def register_camera(self,key,payload,version=None):
