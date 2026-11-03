@@ -127,3 +127,20 @@ elbow_flex 98, wrist_flex 73 to 76, gripper 1.2 to 1.5. wrist_roll is free (it w
   a free thing to raise on the arm joints; a 6 V (never above 7.4 V) supply is the proper fix.
 - Tools: `scripts/so101_nudge.py` (scripted moves, `--moves joint:deg,...`, `--hold-only`), `scripts/so101_jog.py`
   (Xbox controller, dead-man LB, `--probe`). Both refuse over SSH and need Liam present with the 5V kill switch in reach.
+
+## Kinematics (3 Nov)
+
+`lookandpick/kinematics.py`: pure-Python FK and position-only IK for the SO-101, from the vendored URDF. `forward(joints_deg)`
+returns the TCP (the URDF `gripper_frame_link`, between the jaws) in metres in the arm-base frame (z up; the simulator puts
+`base_link` on the table plane); `inverse(target, seed)` returns all six joints in degrees (wrist_roll and gripper carried
+from the seed). It matches the adapter's `Kinematics` protocol. Checked: constants re-parsed from the URDF, FK equals MuJoCo's
+to 2e-7 m (500 random poses), IK round-trips 300/300 in the working area from seeds up to 45 degrees off (0.4-1 ms each).
+Limits it states: joint limits only (no table, collision or hand checks); targets behind the base or almost on the pan axis can
+fail; pan positive turns the arm clockwise seen from above.
+
+Not yet true on the real arm: (1) the zero offsets. At the measured Rest pose the tip comes out 1.4 cm below the base plane
+while the photo shows it just above the table, so the calibration zeros probably differ from the URDF's by a few degrees
+(3 degrees on the shoulder lift is about 1.3 cm at that reach). A tip-touch test would measure it: jog the tip to just touch
+the table and compare FK z with 0. (2) `BaseFrame`'s offset and yaw are placeholders until the marker-to-base measurement.
+(3) `SO101Limits` in the adapter still uses +-45 to +-60 degree development ranges, which would refuse Rest; a commissioned
+profile from the calibrated ranges is a separate step, and Cartesian moves on the real arm stay refused until it exists.

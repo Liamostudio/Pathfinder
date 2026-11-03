@@ -16,6 +16,9 @@ In priority order:
    positions, so mask-to-table error can be scored.
 3. **Shared kinematics module** (FK/IK from the SO-101 URDF) used by the sim arm and importable by
    `adapters/so101.py`, so the real arm follows the same planner as the twin.
+   **DONE by Claude on 3 Nov: `lookandpick/kinematics.py` (pure Python, FK/IK, `BaseFrame`), tested against MuJoCo's own
+   FK to 2e-7 m. Do not write another; switch the sim's `solve_ik` and TCP to it if you want one planner (it is
+   position-only like yours, degrees in and out; the sim works in radians and adds `ARM_BASE_OFFSET`).**
 4. **Contact grasp** replacing the ideal attachment, plus STS3215 lag/torque limits and a reduced-torque
    option for the 5V supply. Keep the scenario runner green.
 5. **Deck on the sim:** a backend switch so `lookandpick.mission_control` can run on `SimulationClient`,
