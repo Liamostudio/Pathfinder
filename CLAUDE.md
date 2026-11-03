@@ -10,7 +10,7 @@ Live plan docs (source of truth):
 
 - **New work only.** Everything presented must be built during the event (building period 26 Oct – 4 Nov 2026; confirmed on the kickoff call). Keep the README split into "Built during the hackathon" and "Open source we build on" (cuRobo, LeRobot, SO-101 URDF, SAM).
 - **Repo must be public.** Never commit secrets: API keys live in `.env`, which is git-ignored.
-- **Deadline:** 9pm EST Wed 4 Nov = **2am UK Thu 5 Nov**. Target submitting Wed evening. Features frozen 3 Nov.
+- **Deadline:** 9pm EST Wed 4 Nov = **2am UK Thu 5 Nov**. Target submitting Wed evening. Features frozen **midday Wed 4 Nov** (moved from 3 Nov by Liam on 3 Nov: the real cut-off is 2am UK Thu 5 Nov). After the freeze only bug fixes, the video, the hosted replay, the README and submitting.
 - Submission needs a 3-minute demo video, the public repo and a live product (plan: hosted replay build of mission control).
 - Scoring: Impact 30%, Use of Meta tooling 25%, Demo 25%, Technical depth 20%.
 - Bonus targets: Best Agentic Use-Case (orchestrator with constrained tools), Best Open-Weights Build (Muse Glimmer on own hardware), Community Vote, Most Viral (X).
