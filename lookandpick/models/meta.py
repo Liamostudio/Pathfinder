@@ -128,4 +128,7 @@ class MetaClient:
 
 def _summary(messages: list[dict]) -> str:
     last = messages[-1] if messages else {}
-    return str(last.get("content", ""))[:300]
+    content = last.get("content", "")
+    if isinstance(content, list):          # multi-part (text + images): never log image bytes into the timeline
+        content = " ".join(p.get("text", "") if p.get("type") == "text" else "[image]" for p in content if isinstance(p, dict))
+    return str(content)[:300]

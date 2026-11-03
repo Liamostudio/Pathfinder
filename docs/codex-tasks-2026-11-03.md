@@ -22,6 +22,10 @@ Priority order. Do 1 first; it gates everyone.
    `POST /api/stop`, `GET /api/timeline?since=<id>`, a text box and a big STOP button (STOP must work even while a command is running), and a timeline
    that shows model name, latency, cost and tokens per call. Acceptance: typed "pick up the red cube and put it next to the blue cube" moves the sim arm
    (needs `.env` with the Meta key; with `--model fake` it must still run a scripted path), STOP interrupts mid-move, no model call after STOP.
+   New: the runtime can now look through the cameras: `lookandpick.runtime.sam_scene_from_sim(model, log, sim_url, camera)` returns `(scene, tracker)`
+   (Spark names the objects, SAM 3.1 finds them; needs `scripts/sam_worker.py` running, which holds the GPU lease, so stop it before reconstruction).
+   Pass them as `Runtime(..., tracker=tracker, scene=scene)`. `python -m lookandpick.runtime --scene sam "..."` shows it working. In Deck, add a
+   'Look' toggle for this (default off, so the demo still works if the worker is down), and show SAM and Spark labelling calls in the timeline.
 
 3. **Hand-gate panel.** Render `GET /api/hand-gate` (Claude will provide it from the live hand loop; until then build against this fixed shape and a fake):
    `{"state": "clear|slow|stop|latched|stale", "scale": 0.0-1.0, "nearest_m": float|null, "hands": int, "fps": float, "latency_ms": {"p50": float,
