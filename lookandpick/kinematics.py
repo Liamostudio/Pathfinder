@@ -67,8 +67,11 @@ def _rz(angle: float) -> Matrix:
     return ((c, -s, 0.0), (s, c, 0.0), (0.0, 0.0, 1.0))
 
 
-def _frames(angles: dict[str, float]):
-    """Per chain joint: (origin, z axis) in the base frame, plus the TCP position. Angles in radians."""
+def _frames(angles: dict[str, float], tool_shift: float = 0.0):
+    """Per chain joint: (origin, z axis) in the base frame, plus the TCP position. Angles in radians.
+
+    `tool_shift` (metres) moves the TCP along the gripper's own z axis; 0 is the URDF's TCP. Used only to fit the difference
+    between the URDF's point and the physical tip someone touches the table with."""
     rotation: Matrix = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
     position: Vec3 = (0.0, 0.0, 0.0)
     joints = []
@@ -77,7 +80,7 @@ def _frames(angles: dict[str, float]):
         position = (position[0] + offset[0], position[1] + offset[1], position[2] + offset[2])
         rotation = _mul(_mul(rotation, _rpy(*rpy)), _rz(angles[name]))
         joints.append((position, (rotation[0][2], rotation[1][2], rotation[2][2])))
-    offset = _apply(rotation, _URDF_TCP[0])
+    offset = _apply(rotation, (_URDF_TCP[0][0], _URDF_TCP[0][1], _URDF_TCP[0][2] + tool_shift))
     tcp = (position[0] + offset[0], position[1] + offset[1], position[2] + offset[2])
     return joints, tcp
 
@@ -119,8 +122,8 @@ class SO101Kinematics:
         self.tolerance_m, self.max_iterations = tolerance_m, max_iterations
 
     # -- forward -----------------------------------------------------------------------------------------------------
-    def forward(self, joints: dict[str, float]) -> Vec3:
-        return _frames(_radians(joints))[1]
+    def forward(self, joints: dict[str, float], tool_shift: float = 0.0) -> Vec3:
+        return _frames(_radians(joints), tool_shift)[1]
 
     def link_positions(self, joints: dict[str, float]) -> list[Vec3]:
         """Origins of the five joints and then the TCP, base frame: the arm's skeleton, for hand-distance checks."""
