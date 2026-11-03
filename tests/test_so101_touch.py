@@ -117,3 +117,13 @@ def test_capture_saves_each_point_skips_and_finishes_and_never_writes(tmp_path):
     assert [p["label"] for p in points] == ["table-1", "table-3"] == [p["label"] for p in saved["points"]]
     assert saved["robot_id"] == "follower"
     assert any(label == "marker-centre" and xy == (0.0, 0.0) for label, xy, _ in touch.PLAN)
+
+
+def test_the_variety_plan_touches_each_spot_at_three_tilts_and_append_keeps_earlier_points(tmp_path):
+    assert len(touch.PLAN_VARIETY) == 9 and len({label for label, _, _ in touch.PLAN_VARIETY}) == 9
+    assert {label.split("-")[0] for label, _, _ in touch.PLAN_VARIETY} == {"spot1", "spot2", "spot3"}
+    earlier = [{"label": "table-1", "marker_xy": None, "joints": StillBus().sync_read("Present_Position")}]
+    answers = iter(["", "q"])
+    points = touch.capture(StillBus(), touch.PLAN_VARIETY, str(tmp_path / "t.json"), ask=lambda _: next(answers),
+                           log=lambda *_: None, sleep=lambda _: None, existing=earlier)
+    assert [p["label"] for p in points] == ["table-1", "spot1-tilt0"]

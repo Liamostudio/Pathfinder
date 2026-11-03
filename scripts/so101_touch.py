@@ -41,6 +41,16 @@ PLAN = ([(f"table-{i}", None, f"the TABLE (spot {i} of 6: spread them out, vary 
            ("marker-BL", (-MARKER_HALF_M, -MARKER_HALF_M), "the black square's BOTTOM-LEFT corner")])
 
 
+# A second round that separates the wrist offset from the tool length: the SAME spot touched with the gripper tilted three ways
+# (if the model is right the height stays 0 however it is tilted), at a near, a middle and a far spot.
+VARIETY = ("straight down (tip pointing at the table)", "tilted about 30 degrees (tip towards you)", "tilted about 60 degrees (tip towards you)")
+SPOTS = ("NEAR the base", "a MIDDLE distance from the base", "FAR from the base (near the edge of its reach)")
+PLAN_VARIETY = [(f"spot{i + 1}-tilt{k}", None, f"the TABLE at spot {i + 1}, {spot}, gripper {tilt}"
+                 + ("" if k == 0 else "; keep the SAME spot, only tilt the wrist"))
+                for i, spot in enumerate(SPOTS) for k, tilt in enumerate(VARIETY)]
+PLANS = {"full": PLAN, "variety": PLAN_VARIETY}
+
+
 class MovedWhileReading(RuntimeError):
     pass
 
@@ -60,9 +70,9 @@ def sample_still(bus, *, reads: int = 10, gap_s: float = 0.05, tolerance_deg: fl
     return out
 
 
-def capture(bus, plan, out_path: str, *, ask=input, log=print, sleep=time.sleep, robot_id: str = "") -> list[dict]:
+def capture(bus, plan, out_path: str, *, ask=input, log=print, sleep=time.sleep, robot_id: str = "", existing=None) -> list[dict]:
     kin = SO101Kinematics()
-    points = []
+    points = list(existing or [])
     for label, marker_xy, where in plan:
         while True:
             answer = ask(f"Rest the tip on {where}, hold still, then press Enter (s = skip this point, q = finish):\n> ").strip().lower()
@@ -222,6 +232,8 @@ def main(argv=None, *, ask=input) -> None:
     c.add_argument("--port", required=True)
     c.add_argument("--id", default="lookandpick", help="name of the calibration file (the one calibrate wrote)")
     c.add_argument("--out", required=True)
+    c.add_argument("--plan", choices=sorted(PLANS), default="full", help="'variety' = the same spots touched at three wrist tilts")
+    c.add_argument("--append", action="store_true", help="keep the touches already in --out and add these")
     a = sub.add_parser("analyse", help="fit offsets and the base frame from a capture file")
     a.add_argument("file")
     a.add_argument("--plate-mm", type=float, default=3.0, help="thickness of the marker plate (the marker points sit this high)")
@@ -244,7 +256,12 @@ def main(argv=None, *, ask=input) -> None:
             raise SystemExit("A motor still has torque ON, so you could not move the arm by hand. Unplug the 5V supply for a "
                              "moment (that releases every motor), plug it back in and run this again. Nothing was changed.")
         print("Torque stays OFF: the arm is limp, so support it and move it by hand. Reading only; nothing is written.")
-        points = capture(robot.bus, PLAN, args.out, ask=ask, robot_id=args.id)
+        existing = []
+        if args.append and os.path.exists(args.out):
+            with open(args.out) as handle:
+                existing = json.load(handle)["points"]
+            print(f"Keeping the {len(existing)} touches already in {args.out}.")
+        points = capture(robot.bus, PLANS[args.plan], args.out, ask=ask, robot_id=args.id, existing=existing)
         print(f"Saved {len(points)} touches to {args.out}. Now run: python3 scripts/so101_touch.py analyse {args.out}")
     finally:
         robot.bus.disconnect(disable_torque=False)
