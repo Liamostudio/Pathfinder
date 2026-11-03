@@ -1,0 +1,18 @@
+# Use a separate Python 3.12 environment; DA3 currently supports Python <=3.13.
+# Install torch and torchvision from the CUDA wheel index before these packages.
+numpy==1.26.4
+opencv-python-headless>=4.10,<4.12
+Pillow>=10,<14
+einops>=0.8,<1
+omegaconf==2.3.0
+addict==2.4.0
+huggingface_hub>=0.34,<2
+safetensors>=0.6,<1
+scipy>=1.11,<1.17
+trimesh>=4,<5
+imageio>=2.36,<3
+moviepy==1.0.3
+evo>=1.30,<2
+pycolmap>=3.12,<5
+plyfile>=1.1,<2
+matplotlib>=3.9,<4

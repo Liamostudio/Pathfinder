@@ -12,11 +12,11 @@ IMAGE_EXTENSIONS={'.jpg','.jpeg','.png','.webp','.tif','.tiff','.bmp'}
 VIDEO_EXTENSIONS={'.mp4','.mov','.mkv','.avi','.webm','.m4v'}
 
 
-def ingest(sources, output, *, max_edge=1280, fps=2., max_frames=160, min_images=2):
+def ingest(sources, output, *, max_edge=1280, fps=2., max_frames=160, min_images=2, all_images=False):
     output=Path(output)
     if output.exists() and any(output.iterdir()):
         raise ValueError('Capture directory must be new or empty')
-    if not 256 <= max_edge <= 4096 or not math.isfinite(fps) or not 0 < fps <= 30 or not 2 <= max_frames <= 1000:
+    if not 256 <= max_edge <= 4096 or not math.isfinite(fps) or not 0 < fps <= 30 or type(max_frames) is not int or (max_frames != 0 and not 2 <= max_frames <= 10000):
         raise ValueError('Invalid capture resolution, sampling rate or frame limit')
     paths=[]
     for source in map(Path,sources):
@@ -38,8 +38,11 @@ def ingest(sources, output, *, max_edge=1280, fps=2., max_frames=160, min_images
         sharpness=float(cv2.Laplacian(gray,cv2.CV_64F).var())
         records.append({'name':name,'source':source.name,'timestamp_s':stamp,'width':rgb.shape[1],
                         'height':rgb.shape[0],'sha256':digest,'sharpness':sharpness})
+    video_frames=0
+    truncated=False
     for path in paths:
-        if len(records)>=max_frames:break
+        if not all_images and max_frames and len(records)>=max_frames:
+            truncated=True;break
         if not path.is_file():raise ValueError(f'Input does not exist: {path}')
         if path.suffix.lower() in IMAGE_EXTENSIONS:
             with Image.open(path) as image:
@@ -55,18 +58,23 @@ def ingest(sources, output, *, max_edge=1280, fps=2., max_frames=160, min_images
                 if stamps is not None and (not isinstance(stamps,list) or not all(isinstance(x,(int,float)) and math.isfinite(x) for x in stamps)):
                     raise ValueError('Invalid video timestamp sidecar')
                 i=0;next_time=0.
-                while len(records)<max_frames:
+                while not max_frames or (video_frames if all_images else len(records))<max_frames:
                     ok,frame=cap.read()
                     if not ok:break
                     if stamps is not None and i>=len(stamps):raise ValueError('Video timestamp sidecar too short')
                     if i/rate+1e-9>=next_time:
+                        before=len(records)
                         store(Image.fromarray(cv2.cvtColor(frame,cv2.COLOR_BGR2RGB)),path,stamps[i] if stamps else i/rate)
+                        video_frames+=len(records)-before
                         next_time+=1/fps
                     i+=1
+                else:
+                    truncated=True
             finally:cap.release()
         else:raise ValueError(f'Unsupported input: {path.name}')
     if len(records)<min_images:raise ValueError(f'At least {min_images} distinct image frames are required')
-    manifest={'version':1,'images':records,'skipped':skipped,'warnings':[],'parameters':{'max_edge':max_edge,'fps':fps,'max_frames':max_frames}}
+    manifest={'version':1,'images':records,'skipped':skipped,'warnings':[],'parameters':{'max_edge':max_edge,'fps':fps,'max_frames':max_frames,'all_images':all_images}}
+    if truncated:manifest['warnings'].append(f'Sampling limit reached ({max_frames} frames). Increase the video frame budget or select unlimited to include more frames.' if all_images else f'Capture capped at {max_frames} frames; remaining inputs were not processed.')
     if len(records)<20 and min_images>1:manifest['warnings'].append('Sparse capture: use 40–120 overlapping views or a slow walk-around video for better coverage.')
     if any(r['sharpness']<30 for r in records):manifest['warnings'].append('Some frames have weak texture or blur; inspect capture sharpness.')
     (output/'capture.json').write_text(json.dumps(manifest,indent=2)+'\n')

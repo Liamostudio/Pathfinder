@@ -19,16 +19,22 @@ def adopt_capture(staged,capture):
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--capture',type=Path,required=True)
-    parser.add_argument('--backend',choices=['local','sam3d-fal'],default='local')
+    parser.add_argument('--backend',choices=['local','sam3d-fal','custom-http'],default='local')
+    parser.add_argument('--sample-fps',type=float,default=2.)
+    parser.add_argument('--max-frames',type=int,default=160)
+    parser.add_argument('--all-images',action='store_true')
+    parser.add_argument('--max-gaussians',type=int,default=40000)
+    parser.add_argument('--train-edge',type=int,default=640)
     parser.add_argument('--steps',type=int,default=2500);parser.add_argument('--uploads',action='store_true')
-    args=parser.parse_args();capture=args.capture;started=time.time()
+    args=parser.parse_args();capture=args.capture;started=time.time();request_context={}
     def progress(stage,info):
-        payload={'stage':stage,'worker_pid':os.getpid(),'updated_at':time.time(),'started_at':started,**info}
+        if info.get('request_id'):request_context['request_id']=info['request_id']
+        payload={'stage':stage,'worker_pid':os.getpid(),'updated_at':time.time(),'started_at':started,**request_context,**info}
         temp=capture/'status.json.tmp';temp.write_text(json.dumps(payload,indent=2));temp.replace(capture/'status.json')
         print(json.dumps(payload),flush=True)
     try:
         credentials={}
-        if args.backend=='sam3d-fal':
+        if args.backend!='local':
             credentials=json.loads(sys.stdin.buffer.read(16385))
             signal.signal(signal.SIGTERM,lambda *_:sys.exit(143))
         if args.uploads:
@@ -40,16 +46,21 @@ def main():
                 if not isinstance(selected,str) or Path(selected).name!=selected:raise ValueError('Invalid selected image')
                 if (capture/'uploads'/selected).is_file():inputs=[capture/'uploads'/selected]
             with tempfile.TemporaryDirectory(dir=capture) as folder:
-                ingest(inputs,Path(folder)/'capture',min_images=1 if args.backend=='sam3d-fal' else 2)
+                ingest(inputs,Path(folder)/'capture',min_images=1 if args.backend!='local' else 2,
+                       fps=args.sample_fps,max_frames=args.max_frames,all_images=args.all_images)
                 adopt_capture(Path(folder)/'capture',capture)
         if args.backend=='sam3d-fal':
             from .remote import generate
             generate(capture,credentials.get('api_key'),image_name=credentials.get('image',''),prompt=credentials.get('prompt','table'),progress=progress)
             return
+        if args.backend=='custom-http':
+            from .custom import generate
+            generate(capture,credentials,progress=progress)
+            return
         from .reconstruct import reconstruct
         reconstruct(capture,progress=progress)
         from .train import train
-        train(capture,steps=args.steps,progress=progress)
+        train(capture,steps=args.steps,max_gaussians=args.max_gaussians,max_edge=args.train_edge,progress=progress)
     except Exception as exc:
         progress('failed',{'error':f'{type(exc).__name__}: {exc}'})
         raise

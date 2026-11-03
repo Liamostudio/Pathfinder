@@ -49,14 +49,16 @@ export class GaussianViewer {
   gl.bindVertexArray(gl.createVertexArray());const corners=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,corners);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,1,1,-1,-1,1,1,-1,1]),gl.STATIC_DRAW);gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
   this.buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,this.buffer);for(const [i,size,offset] of [[1,3,0],[2,3,12],[3,4,24],[4,4,40]]){gl.enableVertexAttribArray(i);gl.vertexAttribPointer(i,size,gl.FLOAT,false,56,offset);gl.vertexAttribDivisor(i,1);}
   gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);gl.disable(gl.DEPTH_TEST);
-  this.dirty=true;this.data=null;this.camera=null;this.target=[0,0,0];this.up=[0,-1,0];this.drag=null;
+  this.dirty=true;this.data=null;this.camera=null;this.target=[0,0,0];this.up=[0,-1,0];this.drag=null;this.mode='orbit';this.autoOrbit=false;
   canvas.addEventListener('pointerdown',e=>{if(!this.camera)return;this.drag={x:e.clientX,y:e.clientY,button:e.button};canvas.setPointerCapture(e.pointerId);});
   canvas.addEventListener('pointermove',e=>{if(!this.drag)return;const dx=e.clientX-this.drag.x,dy=e.clientY-this.drag.y;this.drag.x=e.clientX;this.drag.y=e.clientY;
-   if(this.drag.button===2||e.shiftKey)this.pan(dx,dy);else this.orbit(dx,dy);});
+   if(this.mode==='pan'||this.drag.button===2||e.shiftKey)this.pan(dx,dy);else this.orbit(dx,dy);});
   canvas.addEventListener('pointerup',()=>this.drag=null);canvas.addEventListener('pointercancel',()=>this.drag=null);canvas.addEventListener('contextmenu',e=>e.preventDefault());
-  canvas.addEventListener('wheel',e=>{e.preventDefault();if(!this.camera)return;const c=this.centre();this.setLookAt(add(this.target,mul(sub(c,this.target),Math.exp(Math.max(-300,Math.min(300,e.deltaY))*.001))),this.target);},{passive:false});
+  canvas.addEventListener('wheel',e=>{e.preventDefault();this.zoom(Math.exp(Math.max(-300,Math.min(300,e.deltaY))*.001));},{passive:false});
+  canvas.addEventListener('keydown',e=>{if(!this.camera||e.ctrlKey||e.metaKey||e.altKey)return;const actions={ArrowLeft:()=>this.orbit(-12,0),ArrowRight:()=>this.orbit(12,0),ArrowUp:()=>this.orbit(0,-12),ArrowDown:()=>this.orbit(0,12),'+':()=>this.zoom(.85),'=':()=>this.zoom(.85),'-':()=>this.zoom(1.18),Home:()=>this.resetView()};if(actions[e.key]){e.preventDefault();actions[e.key]();}});
+  canvas.addEventListener('dblclick',()=>this.resetView());
   this.observer=new ResizeObserver(()=>{this.dirty=true;});this.observer.observe(canvas);
-  const draw=()=>{if(this.dirty)this.render();this.animation=requestAnimationFrame(draw);};draw();
+  let previous=0;const draw=(now=0)=>{const dt=Math.min(50,now-previous);previous=now;if(this.autoOrbit&&this.camera&&!this.drag&&!document.hidden)this.orbit(dt*.012,0);if(this.dirty)this.render();this.animation=requestAnimationFrame(draw);};draw();
  }
  async load(base){
   const version=this.loadVersion=(this.loadVersion||0)+1;
@@ -72,14 +74,16 @@ export class GaussianViewer {
   this.data=values;this.count=n;this.metadata=metadata;this.indices=Array.from({length:n},(_,i)=>i);this.sorted=new Float32Array(values.length);
   this.target=metadata.bounds[0].map((x,i)=>(x+metadata.bounds[1][i])/2);
   this.up=norm(metadata.cameras.reduce((sum,c)=>add(sum,c.world_to_camera[1].slice(0,3).map(x=>-x)),[0,0,0]));
-  this.capturedView(0);this.onStatus(`${n.toLocaleString()} ${metadata.generated?'SAM 3D':'trained'} Gaussians`);return metadata;
+  this.capturedView(0);this.onStatus(`${n.toLocaleString()} ${metadata.generated?(metadata.backend==='sam3d-fal'?'SAM 3D':'provider'):'trained'} Gaussians`);return metadata;
  }
- clearScene(){this.loadVersion=(this.loadVersion||0)+1;this.loadController?.abort();this.data=null;this.camera=null;this.metadata=null;this.dirty=true;}
+ clearScene(){this.loadVersion=(this.loadVersion||0)+1;this.loadController?.abort();this.data=null;this.camera=null;this.metadata=null;this.autoOrbit=false;this.dirty=true;}
+ zoom(factor){if(!this.camera||!Number.isFinite(factor)||factor<=0)return;const offset=sub(this.centre(),this.target),distance=Math.hypot(...offset);if(distance<1e-8)return;const extent=this.metadata?Math.hypot(...sub(this.metadata.bounds[1],this.metadata.bounds[0])):1;const next=Math.max(Math.max(extent,.1)*.005,Math.min(Math.max(extent,.1)*100,distance*factor));this.setLookAt(add(this.target,mul(offset,next/distance)),this.target);}
+ resetView(){if(!this.metadata)return;this.target=this.metadata.bounds[0].map((x,i)=>(x+this.metadata.bounds[1][i])/2);this.capturedView(0);}
  capturedView(index){if(!this.metadata)return;const c=this.metadata.cameras[index];if(!c)return;this.camera={rotation:c.world_to_camera.slice(0,3).map(row=>row.slice(0,3)),translation:c.world_to_camera.slice(0,3).map(row=>row[3]),K:c.K,width:c.width,height:c.height};this.dirty=true;}
  centre(){const {rotation:r,translation:t}=this.camera;return [0,1,2].map(i=>-r.reduce((sum,row,j)=>sum+row[i]*t[j],0));}
  setLookAt(centre,target){const forward=norm(sub(target,centre));let right=norm(cross(forward,this.up));if(Math.hypot(...right)<.01)right=[1,0,0];const down=norm(cross(forward,right));const r=[right,down,forward];const f=.5*this.canvas.width/Math.tan(Math.PI/6);this.camera={rotation:r,translation:r.map(row=>-dot(row,centre)),K:[[f,0,this.canvas.width/2],[0,f,this.canvas.height/2],[0,0,1]],width:this.canvas.width,height:this.canvas.height};this.dirty=true;}
- orbit(dx,dy){let offset=sub(this.centre(),this.target);const rotate=(v,axis,angle)=>add(add(mul(v,Math.cos(angle)),mul(cross(axis,v),Math.sin(angle))),mul(axis,dot(axis,v)*(1-Math.cos(angle))));offset=rotate(offset,this.up,-dx*.006);const right=norm(this.camera.rotation[0]);const proposal=rotate(offset,right,-dy*.006);if(Math.abs(dot(norm(proposal),this.up))<.98)offset=proposal;this.setLookAt(add(this.target,offset),this.target);}
- pan(dx,dy){const c=this.centre(),scale=Math.hypot(...sub(c,this.target))*.0018;const delta=add(mul(this.camera.rotation[0],-dx*scale),mul(this.camera.rotation[1],-dy*scale));this.target=add(this.target,delta);this.setLookAt(add(c,delta),this.target);}
+ orbit(dx,dy){if(!this.camera)return;let offset=sub(this.centre(),this.target);const rotate=(v,axis,angle)=>add(add(mul(v,Math.cos(angle)),mul(cross(axis,v),Math.sin(angle))),mul(axis,dot(axis,v)*(1-Math.cos(angle))));offset=rotate(offset,this.up,-dx*.006);const right=norm(this.camera.rotation[0]);const proposal=rotate(offset,right,-dy*.006);if(Math.abs(dot(norm(proposal),this.up))<.98)offset=proposal;this.setLookAt(add(this.target,offset),this.target);}
+ pan(dx,dy){if(!this.camera)return;const c=this.centre(),scale=Math.hypot(...sub(c,this.target))*.0018;const delta=add(mul(this.camera.rotation[0],-dx*scale),mul(this.camera.rotation[1],-dy*scale));this.target=add(this.target,delta);this.setLookAt(add(c,delta),this.target);}
  render(){
   this.dirty=false;const gl=this.gl,canvas=this.canvas;const ratio=Math.min(devicePixelRatio||1,2);const w=Math.max(1,Math.round(canvas.clientWidth*ratio)),h=Math.max(1,Math.round(canvas.clientHeight*ratio));if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}gl.viewport(0,0,w,h);gl.clearColor(.05,.06,.07,1);gl.clear(gl.COLOR_BUFFER_BIT);if(!this.data||!this.camera)return;
   const {rotation:r,translation:t,K,width,height}=this.camera;

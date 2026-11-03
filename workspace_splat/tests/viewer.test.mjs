@@ -38,3 +38,16 @@ test('late error from an old scene cannot fail a successful new scene',async()=>
  pending.get('/a/scene.json').reject(Error('Old request failed'));
  assert.equal(await a,null);assert.equal(viewer.metadata.id,2);
 });
+
+test('orbit preserves distance, zoom changes distance, reset restores the captured view',async()=>{
+ const {viewer,finish}=harness();const ready=viewer.load('/scene');finish('/scene',1);await ready;
+ viewer.canvas={width:640,height:480};
+ const distance=()=>Math.hypot(...viewer.centre().map((x,i)=>x-viewer.target[i]));
+ const initial=distance();viewer.orbit(45,10);
+ assert.ok(Math.abs(distance()-initial)<1e-8);
+ viewer.zoom(.5);assert.ok(Math.abs(distance()-initial*.5)<1e-8);
+ viewer.pan(20,5);assert.notDeepEqual(viewer.target,[0,0,0]);
+ viewer.resetView();assert.deepEqual(viewer.target,[0,0,0]);assert.ok(Math.abs(distance()-initial)<1e-8);
+ viewer.zoom(Infinity);assert.ok(Number.isFinite(distance()));
+ viewer.zoom(1e-20);assert.ok(distance()>0);
+});

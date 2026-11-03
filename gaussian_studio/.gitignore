@@ -1,0 +1,10 @@
+data/
+server.log
+server.pid
+desktop.log
+desktop-backend.log
+Splat Studio.desktop
+.cache/
+.depth-venv/
+exports/
+*.png

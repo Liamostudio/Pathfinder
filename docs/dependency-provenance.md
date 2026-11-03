@@ -1,0 +1,9 @@
+# Dependency and checkpoint provenance
+
+Checked 3 November 2026. The README separates project code from upstream components.
+
+The installed geometry registry points to `gaussian_studio/.cache/huggingface/models--facebook--map-anything-apache/snapshots/00f9c245bbcb60522d1ed7f9e9d88462c6e3f38a/`. That snapshot contains `config.json` and `model.safetensors`, not a cached licence/model card. The public [Hugging Face revision metadata](https://huggingface.co/api/models/facebook/map-anything-apache/revision/00f9c245bbcb60522d1ed7f9e9d88462c6e3f38a) returned the same SHA and `cardData.license: apache-2.0`. The cached source at revision `3d10cf7a3016fc0f9bb13a071ee66c47b10be0d9` also contains an Apache 2.0 LICENSE and documents the Apache weights variant. No claim is made about the separately licensed research weights.
+
+The Gaussian trainer uses gsplat 1.5.3 (Apache 2.0), PyTorch and project-authored training/export code. It does not vendor the original Inria research-only Gaussian trainer. COLMAP/PyCOLMAP is BSD 3-Clause. SO-101 meshes retain `LICENSE.upstream` and `SOURCE.json`. MediaPipe code and EfficientDet-Lite0 are Apache 2.0; their downloaded models stay in ignored `weights/`. Meta SAM 3.1 uses the custom [SAM License](https://github.com/facebookresearch/sam3/blob/main/LICENSE), whose local source copy was checked; it must not be described as Apache. Third-party weights and caches are not included in this repository.
+
+Sources: [MapAnything model variants](https://github.com/facebookresearch/map-anything#models), [gsplat](https://github.com/nerfstudio-project/gsplat), [MediaPipe licence](https://github.com/google-ai-edge/mediapipe/blob/master/LICENSE), [EfficientDet model](https://www.kaggle.com/models/tensorflow/efficientdet), [LeRobot licence](https://github.com/huggingface/lerobot/blob/main/LICENSE), [cuRobo](https://github.com/NVlabs/curobo).

@@ -12,6 +12,7 @@ def main():
     for name in ('ingest','run'):
         p=sub.add_parser(name);p.add_argument('inputs',nargs='+',type=Path);p.add_argument('--output',type=Path,required=True)
         p.add_argument('--sample-fps',type=float,default=2);p.add_argument('--max-frames',type=int,default=160)
+        p.add_argument('--all-images',action='store_true',help='Include every still image; frame budget applies only to videos. Use --max-frames 0 for unlimited.')
         p.add_argument('--max-edge',type=int,default=1280)
         if name=='run':
             p.add_argument('--steps',type=int,default=2500);p.add_argument('--max-gaussians',type=int,default=40000);p.add_argument('--train-edge',type=int,default=640)
@@ -35,7 +36,7 @@ def main():
         if args.command in ('ingest','run'):
             from .ingest import ingest
             progress('ingesting',{'message':'Normalising photographs/video frames'})
-            result=ingest(args.inputs,capture,max_edge=args.max_edge,fps=args.sample_fps,max_frames=args.max_frames)
+            result=ingest(args.inputs,capture,max_edge=args.max_edge,fps=args.sample_fps,max_frames=args.max_frames,all_images=args.all_images)
             progress('ingested',{'frames':len(result['images']),'warnings':result['warnings']})
         if args.command in ('reconstruct','run'):
             from .reconstruct import reconstruct

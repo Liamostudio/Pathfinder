@@ -86,6 +86,18 @@ def test_preview_cleans_up_after_inference_failure(monkeypatch, sam_fixture):
     assert not predictor.resource.exists()
 
 
+def test_browser_frames_have_playback_metadata(tmp_path, monkeypatch, sam_fixture):
+    import json
+    video, checkpoint, predictor = sam_fixture
+    output = tmp_path / 'frames'
+    run_script(monkeypatch, 'sam3_live.py', ['--video', video, '--checkpoint', checkpoint,
+               '--prompt', 'cube', '--no-window', '--sample-fps', '10', '--frames-out', output])
+    meta = json.loads((output / 'metadata.json').read_text())
+    assert meta['fps'] == 10
+    assert meta['count'] == 1
+    assert (output / '00000.jpg').is_file()
+
+
 def test_smoke_reports_nested_object_ids(monkeypatch, capsys, sam_fixture):
     video, checkpoint, predictor = sam_fixture
     run_script(monkeypatch, 'sam3_smoke.py', ['--video', video, '--checkpoint', checkpoint,

@@ -9,6 +9,7 @@ Workarounds for upstream facebookresearch/sam3 are the same as scripts/sam3_smok
 """
 import argparse
 import math
+import json
 from pathlib import Path
 import tempfile
 import time
@@ -27,9 +28,13 @@ def main():
     ap.add_argument("--out", help="write annotated mp4 here")
     ap.add_argument("--checkpoint", type=Path, help="SAM 3.1 checkpoint; defaults to the Hugging Face cache")
     ap.add_argument("--no-window", action="store_true")
+    ap.add_argument("--frames-out", type=Path, help="save annotated JPEG frames and metadata for the browser GUI")
+    ap.add_argument("--sample-fps", type=float, help="sample an input video at this frame rate, preserving playback speed")
     a = ap.parse_args()
     if not math.isfinite(a.seconds) or a.seconds <= 0 or a.max_frames <= 0:
         ap.error("--seconds and --max-frames must be positive and finite")
+    if a.sample_fps is not None and (not math.isfinite(a.sample_fps) or not 0 < a.sample_fps <= 30):
+        ap.error("--sample-fps must be between 0 and 30")
 
     with tempfile.TemporaryDirectory(prefix="sam3live_") as tmp:
         frames = []
@@ -40,9 +45,17 @@ def main():
             if a.video:
                 fps_in = cap.get(cv2.CAP_PROP_FPS)
                 fps_in = fps_in if math.isfinite(fps_in) and fps_in > 0 else 15
+                source_fps = fps_in
+                source_index = 0
+                if a.sample_fps:
+                    fps_in = min(source_fps, a.sample_fps)
                 while len(frames) < a.max_frames:
                     ok, f = cap.read()
                     if not ok: break
+                    stamp = source_index / source_fps
+                    source_index += 1
+                    if a.sample_fps and stamp + 1e-6 < len(frames) / fps_in:
+                        continue
                     frames.append(cv2.resize(f, (640, int(640 * f.shape[0] / f.shape[1]))))
             else:
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640); cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -107,6 +120,15 @@ def main():
             cv2.putText(img, f'"{a.prompt}"  objs={m.shape[0] if m.ndim >= 3 else 0}  frame {i}', (8, 24),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             return img
+        if a.frames_out:
+            a.frames_out.mkdir(parents=True, exist_ok=True)
+            for i in range(len(frames)):
+                if not cv2.imwrite(str(a.frames_out / f"{i:05d}.jpg"), draw(i)):
+                    raise RuntimeError("Cannot save annotated frame")
+            (a.frames_out / "metadata.json").write_text(json.dumps({
+                "fps": fps_in, "count": len(frames), "prompt": a.prompt,
+                "seconds": len(frames) / fps_in,
+            }))
         if a.out:
             h, w = frames[0].shape[:2]
             vw = cv2.VideoWriter(a.out, cv2.VideoWriter_fourcc(*"mp4v"), fps_in, (w, h))

@@ -42,8 +42,9 @@ def test_documented_queue_to_ply_to_viewer_without_external_network(tmp_path,ply
                    {'status':'IN_PROGRESS'},{'status':'COMPLETED'},
                    {'gaussian_splat':{'url':'https://v3.fal.media/result.ply'}},ply])
     client=FalClient(KEY,opener=opener,sleep=lambda _:None)
-    events=[]
-    scene=generate(capture,KEY,image_name='input.jpg',prompt='robot arm',client=client,progress=lambda s,i:events.append(s))
+    events=[];progress_details=[]
+    def progress(stage,info):events.append(stage);progress_details.append(info)
+    scene=generate(capture,KEY,image_name='input.jpg',prompt='robot arm',client=client,progress=progress)
     assert scene['generated'] is True and scene['trained'] is False
     assert scene['model']=='Meta SAM 3D Objects' and scene['provider']=='fal.ai'
     assert scene['count']==32 and scene['metric'] is False
@@ -56,6 +57,7 @@ def test_documented_queue_to_ply_to_viewer_without_external_network(tmp_path,ply
     assert opener.requests[0].get_header('Authorization')=='Key '+KEY
     assert opener.requests[-1].get_header('Authorization') is None
     assert 'remote_inference' in events and events[-1]=='complete'
+    assert any(info.get('request_id')=='test-request' for info in progress_details)
     assert all(KEY.encode() not in p.read_bytes() for p in capture.rglob('*') if p.is_file())
 
 

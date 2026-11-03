@@ -71,6 +71,21 @@ class FalClient:
                 if not isinstance(value,dict):raise RemoteError('Unexpected provider response')
                 return value
         except urllib.error.HTTPError as exc:
+            if exc.code==403:
+                try:
+                    reason=json.loads(exc.read(16384))
+                    detail=str(reason.get('detail','') if isinstance(reason,dict) else '').lower()
+                except (OSError,ValueError,UnicodeError):detail=''
+                if 'exhausted balance' in detail:
+                    raise RemoteError('fal API: exhausted balance (HTTP 403). Add credits at https://fal.ai/dashboard/usage-billing/credits') from None
+                if 'user is locked' in detail:
+                    if 'budget' in detail or 'spend' in detail:
+                        remedy='Account budget limit; review spending limits or contact your account administrator.'
+                    elif 'archiv' in detail:remedy='Account archived; contact fal support.'
+                    elif 'safety' in detail:remedy='Account safety lock; contact fal support.'
+                    elif 'admin' in detail:remedy='Account administrator lock; contact your account administrator.'
+                    else:remedy='Account locked; review its status in the fal dashboard or contact fal support.'
+                    raise RemoteError('fal API: '+remedy+' (HTTP 403). Adding credits may not resolve this lock.') from None
             hints={401:'Key rejected',403:'Model access refused',429:'Rate limit reached',422:'Input rejected'}
             raise RemoteError(f'fal API: {hints.get(exc.code,"request failed")} (HTTP {exc.code})') from None
         except (urllib.error.URLError,TimeoutError,OSError):
@@ -86,6 +101,7 @@ class FalClient:
         submitted=self.json(QUEUE,payload)
         request_id=submitted.get('request_id')
         if not isinstance(request_id,str) or not re.fullmatch(r'[a-zA-Z0-9_-]{1,128}',request_id):raise RemoteError('Invalid provider request ID')
+        progress('remote_submitted',{'message':'fal accepted the SAM 3D request','request_id':request_id,'backend':'sam3d-fal'})
         self.cancel_url=queue_url(submitted.get('cancel_url'),request_id,'/cancel')
         deadline=self.clock()+self.timeout
         try:
@@ -99,7 +115,7 @@ class FalClient:
                     if not isinstance(artifact,dict):raise RemoteError('Provider result has no Gaussian splat')
                     return self.download(artifact.get('url')),request_id
                 if status not in ('IN_QUEUE','IN_PROGRESS'):raise RemoteError('Provider job returned an unexpected status')
-                progress('remote_queued' if status=='IN_QUEUE' else 'remote_inference',{'message':'fal: queued' if status=='IN_QUEUE' else 'Meta SAM 3D Objects is generating the selected object on fal'})
+                progress('remote_queued' if status=='IN_QUEUE' else 'remote_inference',{'message':'fal: queued' if status=='IN_QUEUE' else 'Meta SAM 3D Objects is generating the selected object on fal','request_id':request_id,'backend':'sam3d-fal'})
                 self.sleep(2)
             raise RemoteError('SAM 3D request timed out; cancellation requested')
         except BaseException:

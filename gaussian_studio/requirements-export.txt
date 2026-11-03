@@ -1,0 +1,2 @@
+# Optional H.264 MP4 encoder for python -m gaussian_studio.turntable.
+imageio-ffmpeg>=0.7,<0.8
