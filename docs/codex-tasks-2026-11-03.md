@@ -27,7 +27,10 @@ Priority order. Do 1 first; it gates everyone.
    Pass them as `Runtime(..., tracker=tracker, scene=scene)`. `python -m lookandpick.runtime --scene sam "..."` shows it working. In Deck, add a
    'Look' toggle for this (default off, so the demo still works if the worker is down), and show SAM and Spark labelling calls in the timeline.
 
-3. **Hand-gate panel.** Render `GET /api/hand-gate` (Claude will provide it from the live hand loop; until then build against this fixed shape and a fake):
+3. **Hand-gate panel.** (Claude has built the provider: `lookandpick.hand_gate.HandGate.status()` returns exactly this shape, `Runtime.hand_gate_status()`
+   exposes it, `python -m lookandpick.runtime --hand-gate CAM --status-port 8768` serves `GET /api/hand-gate` and `GET /api/timeline?since=` read-only on loopback,
+   and `python -m lookandpick.status_server --fake` serves a cycling fake for UI work with no camera. Your `RuntimeSession(hand_gate=callable)` can take
+   `runtime.hand_gate_status` directly.) Render `GET /api/hand-gate` (Claude will provide it from the live hand loop; until then build against this fixed shape and a fake):
    `{"state": "clear|slow|stop|latched|stale", "scale": 0.0-1.0, "nearest_m": float|null, "hands": int, "fps": float, "latency_ms": {"p50": float,
    "p95": float}, "stale_s": float, "updated": epoch_s}`. Show a state chip, the speed scale as a bar, nearest-hand distance, fps and latency, and "STALE"
    in red when `stale_s` exceeds 0.15. Acceptance: a fake feed cycling through every state renders each one; a missing endpoint shows NOT CONNECTED.
