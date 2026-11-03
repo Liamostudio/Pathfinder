@@ -75,3 +75,18 @@ maximum, so from Rest the lift can only go positive and the elbow only negative.
 - A test proves no Deck code path imports or calls a writing method (`write`, `sync_write`, `enable_torque`,
   `Goal_Position`, `Torque_Enable`) on the real-arm bus.
 - `PROGRESS.md` says what was tested and how; milestones untouched.
+
+## Unification tasks (3 Nov), in order. Full context: `docs/integration-2026-11-03.md`
+
+1. **Commit your own files first** (`gaussian_studio/`, `lookandpick/workspaces/`, `lookandpick/web/*`, `gpu.py`, `sam_web/`, docs, tests) in clear
+   commits, and keep `README.md` split into "Built during the hackathon" and "Open source we build on" (add MapAnything, the splat trainer,
+   MediaPipe, EfficientDet-Lite0 with their licences; check the licence of the cached MapAnything weights). Do not touch `lookandpick/adapters/*`,
+   `lookandpick/kinematics.py`, `lookandpick/workspace_bridge.py`, `calibration/` or `touches/`.
+2. **Place the robot from the measured base frame.** In `compose.py` and the editor, when a marker alignment exists and
+   `calibration/so101-touch-*.json` is present, set `robot` from `lookandpick.workspace_bridge.robot_placement(canonical_from_marker,
+   BaseFrame.from_calibration(path))` and set `placement_status` to `touch_calibrated` (keep `illustrative` otherwise). Replace the "robot
+   alignment: approximate / illustrative" wording only when that status holds, and still say it is a visual placement, not a safety input.
+   Keep the hand-editable fields.
+3. **Draw real joint readings** with `urdf_joint_radians(readings, offsets)` (read-only telemetry panel in this brief); never write to the arm.
+4. Measure the black marker square with Liam and use that value for `marker_size_m` (tick "measured"), instead of the nominal 120 mm.
+5. Keep the voxel path check advisory: it must not be called from any code path that moves the arm.
