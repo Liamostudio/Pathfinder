@@ -43,7 +43,8 @@ PLAN = ([(f"table-{i}", None, f"the TABLE (spot {i} of 6: spread them out, vary 
 
 # A second round that separates the wrist offset from the tool length: the SAME spot touched with the gripper tilted three ways
 # (if the model is right the height stays 0 however it is tilted), at a near, a middle and a far spot.
-VARIETY = ("straight down (tip pointing at the table)", "tilted about 30 degrees (tip towards you)", "tilted about 60 degrees (tip towards you)")
+VARIETY = ("straight down (pointing at the table)", "leaning about 30 degrees from vertical (wrist nearer the base than the tip)",
+           "leaning about 60 degrees from vertical (wrist nearer the base than the tip)")
 SPOTS = ("NEAR the base", "a MIDDLE distance from the base", "FAR from the base (near the edge of its reach)")
 PLAN_VARIETY = [(f"spot{i + 1}-tilt{k}", None, f"the TABLE at spot {i + 1}, {spot}, gripper {tilt}"
                  + ("" if k == 0 else "; keep the SAME spot, only tilt the wrist"))
