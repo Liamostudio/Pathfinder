@@ -148,7 +148,7 @@ def hold_only(bus, seconds: float = 10.0, *, floor: float = 4.0, sleep=time.slee
         sleep(0.5)
         v = volts(bus)
         lowest = min(lowest, min(v.values()))
-        log(f"holding: lowest {min(v.values()):.1f} V, highest {max(v.values()):.1f} V")
+        log(f"holding: lowest {min(v.values()):.1f} V ({min(v, key=v.get)}), highest {max(v.values()):.1f} V")
         if min(v.values()) < floor:
             raise NudgeAbort(f"voltage fell to {min(v.values()):.1f} V (hold-only limit {floor} V)")
     return {"min_volts": lowest, "start": start}
@@ -279,7 +279,8 @@ def main(argv=None, *, ask=input) -> None:
                    help=f"Max_Torque_Limit for the arm joints (1000 = full); default {TORQUE_LIMIT}. The gripper stays at {TORQUE_LIMIT}.")
     p.add_argument("--trace", help="write a CSV of every tick (positions and all six motor voltages) to this path")
     p.add_argument("--moves", help="several moves in one held session, e.g. wrist_roll:20,wrist_flex:-20 (overrides --joint/--degrees)")
-    p.add_argument("--hold-only", action="store_true", help="hold the arm still for 10 s and print voltages; moves nothing")
+    p.add_argument("--hold-only", action="store_true", help="hold the arm still and print voltages twice a second; moves nothing")
+    p.add_argument("--hold-seconds", type=int, default=10, choices=range(5, 181), metavar="5-180", help="length of --hold-only (default 10)")
     a = p.parse_args(argv)
     moves = parse_moves(a.moves) if a.moves else [(a.joint, a.degrees)]
     for joint, degrees in moves:
@@ -299,9 +300,9 @@ def main(argv=None, *, ask=input) -> None:
         print("Voltages (V):", volts(robot.bus))
         if a.hold_only:
             if ask("Arm folded at rest and supported by your hand? Type HOLD to turn torque on (nothing will move) "
-                   "for 10 s:\n> ") != "HOLD":
+                   f"for {a.hold_seconds} s:\n> ") != "HOLD":
                 raise SystemExit("Not confirmed; torque stays off.")
-            stats = hold_only(robot.bus)
+            stats = hold_only(robot.bus, a.hold_seconds)
             print(f"Done. Lowest voltage while holding {stats['min_volts']:.1f} V.")
             return
         try:
