@@ -7,8 +7,15 @@ Run from the project root:
 ```
 
 Open **http://127.0.0.1:8765**. Use `--port 8766` if the default port is occupied.
-Stop the server with Ctrl+C. No Node installation, frontend build, API key or GPU is required.
+Stop the server with Ctrl+C. The built-in simulation needs no Node installation, frontend build, API key or GPU. Optional local reconstruction uses the isolated GPU runtimes described below.
 The GUI and fonts are included when the Python package is built as a wheel.
+
+## Local workspace setup
+
+Choose **set up workspace** to load the completed experiment or reconstruct local
+photos/video using MapAnything, SAM 3.1 and gsplat. GPU inference runs only during
+setup; saved versions load without inference. See [local workspace setup](local-workspaces.md)
+for runtime requirements, correction controls, exports and validation limits.
 
 ## First demo
 

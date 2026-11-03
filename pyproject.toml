@@ -15,7 +15,7 @@ hardware = ["lerobot[feetech]"]
 testpaths = ["tests"]
 
 [tool.setuptools]
-packages = ["lookandpick", "lookandpick.adapters", "lookandpick.models"]
+packages = ["lookandpick", "lookandpick.adapters", "lookandpick.models", "lookandpick.workspaces"]
 
 [tool.setuptools.package-data]
-lookandpick = ["web/*.html", "web/*.css", "web/*.js", "web/assets/*.svg", "web/assets/fonts/*.ttf", "web/assets/fonts/*.txt"]
+lookandpick = ["web/*.html", "web/*.css", "web/*.js", "web/assets/*.svg", "web/assets/fonts/*.ttf", "web/assets/fonts/*.txt", "sam_web/*.html", "sam_web/*.css", "sam_web/*.js"]

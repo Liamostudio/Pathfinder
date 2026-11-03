@@ -272,7 +272,9 @@ function showPage(next) {
   page = next;
   $('#workspace').hidden = next !== 'workspace';
   $('#calibration').hidden = next !== 'calibration';
-  $('#timeline').hidden = next === 'calibration';
+  $('#workspace-setup').hidden = next !== 'setup';
+  $('#timeline').hidden = next === 'calibration' || next === 'setup';
+  window.dispatchEvent(new CustomEvent('pathfinder:navigate',{detail:next}));
   $$('[data-page]').forEach(button => {
     button.classList.toggle('active', button.dataset.page === page);
     if (button.dataset.page === page) button.setAttribute('aria-current','page'); else button.removeAttribute('aria-current');

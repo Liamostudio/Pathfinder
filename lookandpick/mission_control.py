@@ -1,7 +1,7 @@
 """Local mission control: python -m lookandpick.mission_control.
 
-Only FakeTracker and SimArm are used. Camera/video preview stays in the browser;
-it is never interpreted as tracking data. No model or hardware is connected.
+Robot controls use FakeTracker and SimArm. Optional workspace reconstruction and
+RGB people/hand monitoring run in separate local workers. No physical arm is connected.
 """
 from __future__ import annotations
 
@@ -150,7 +150,10 @@ class MissionControl:
             return self.state()
 
 
-def make_handler(session):
+def make_handler(session, workspace_service=None):
+    from .workspaces.service import WorkspaceService
+    from .workspaces.http import dispatch
+    workspaces=workspace_service or WorkspaceService()
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):
             pass
@@ -178,6 +181,7 @@ def make_handler(session):
         def do_GET(self):
             if not self._local_request():
                 return self._json(403, {'error': 'Local requests only'})
+            if dispatch(self,workspaces,'GET'):return
             path = unquote(urlsplit(self.path).path)
             if path == '/api/state':
                 return self._json(200, session.state())
@@ -190,9 +194,18 @@ def make_handler(session):
                      '.ttf': 'font/ttf', '.txt': 'text/plain; charset=utf-8', '.json': 'application/json'}
             self._send(200, file.read_bytes(), types.get(file.suffix, 'application/octet-stream'))
 
+        def do_PATCH(self):
+            if not self._local_request():return self._json(403,{'error':'Local requests only'})
+            if not dispatch(self,workspaces,'PATCH'):self._json(404,{'error':'Not found'})
+
+        def do_DELETE(self):
+            if not self._local_request():return self._json(403,{'error':'Local requests only'})
+            if not dispatch(self,workspaces,'DELETE'):self._json(404,{'error':'Not found'})
+
         def do_POST(self):
             if not self._local_request():
                 return self._json(403, {'error': 'Local requests only'})
+            if dispatch(self,workspaces,'POST'):return
             if self.path != '/api/action':
                 return self._json(404, {'error': 'Not found'})
             if self.headers.get('Content-Type', '').split(';')[0] != 'application/json':
@@ -213,8 +226,10 @@ def make_handler(session):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--workspace-data',type=Path,default=Path(__file__).resolve().parents[1]/'recordings/workspaces')
     args = parser.parse_args()
-    server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(MissionControl()))
+    from .workspaces.service import WorkspaceService
+    server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(MissionControl(),WorkspaceService(args.workspace_data)))
     print(f'Mission control: http://127.0.0.1:{server.server_port} (simulation only)', flush=True)
     try:
         server.serve_forever()
