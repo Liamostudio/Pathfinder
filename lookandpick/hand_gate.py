@@ -195,7 +195,8 @@ class HandGate:
 
 
 def live_hand_gate(arm, cam: int, model_path, *, marker_mm: float = 120.0, marker_id: int = 0, intrinsics=None, hfov_deg: float = 70.0,
-                   hand_height: float = 0.08, width: int = 640, height: int = 360, safety: Safety | None = None, log=print) -> HandGate:
+                   hand_height: float = 0.08, width: int = 640, height: int = 360, safety: Safety | None = None, log=print,
+                   wrap_detector=None) -> HandGate:
     """A real camera and MediaPipe, calibrated from the ArUco marker in view (keep hands out of the picture for a moment).
 
     Calibrates and runs at the same resolution (USB 2 cameras are only fast at low resolution). Needs the hands environment
@@ -225,4 +226,5 @@ def live_hand_gate(arm, cam: int, model_path, *, marker_mm: float = 120.0, marke
         probe.close()
     log(f"Calibrated: reprojection {calibration.reprojection_px:.2f} px at {width}x{height}")
     camera = LatestFrameCamera(cam, f"cam{cam}", width, height)
-    return HandGate(camera, lambda: MediaPipeHandDetector(model_path), calibration, arm, safety=safety, hand_height=hand_height)
+    make = (lambda: MediaPipeHandDetector(model_path)) if wrap_detector is None else (lambda: wrap_detector(MediaPipeHandDetector(model_path)))
+    return HandGate(camera, make, calibration, arm, safety=safety, hand_height=hand_height)
