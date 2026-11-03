@@ -19,6 +19,11 @@ from ..safety import valid_position
 from ..world import Vec3
 
 JOINTS = ('shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll', 'gripper')
+# Physical bounds no profile may exceed: body joints in LeRobot degrees, the gripper on its 0..100 scale.
+HARD_RANGES = MappingProxyType({
+    'shoulder_pan': (-180.,180.), 'shoulder_lift': (-180.,180.), 'elbow_flex': (-180.,180.),
+    'wrist_flex': (-180.,180.), 'wrist_roll': (-180.,180.), 'gripper': (0.,100.),
+})
 DEVELOPMENT_RANGES = MappingProxyType({
     'shoulder_pan': (-60.,60.), 'shoulder_lift': (-45.,45.), 'elbow_flex': (-60.,60.),
     'wrist_flex': (-45.,45.), 'wrist_roll': (-60.,60.), 'gripper': (0.,20.),
@@ -47,13 +52,27 @@ class SO101Limits:
     workspace_max: Vec3 = (.30, .30, .40)
     gripper_torque_raw: int = 100  # raw torque limit, NOT a force in newtons
     commissioned: bool = False
+    # A commissioned profile (adapters/so101_profile.py) sets these; the development defaults leave them inert.
+    observation_margin_deg: float = 0.0  # how far past joint_ranges an OBSERVED joint may sit (Rest rests on the calibrated ends)
+    min_reach_m: float = 0.0             # no target closer than this to the pan axis (the base and the arm's own links)
+    cartesian_step_m: float = 0.0        # >0: move_to follows a straight line in space in waypoints this far apart, planned in full first
+    completion_tolerance_deg: float = 1e-4  # a joint counts as arrived within this; real motors report in 0.088 degree ticks
 
     def __post_init__(self):
         if set(self.joint_ranges) != set(JOINTS):
             raise ValueError('All six joint limits are required')
+        # Development ranges are the ceiling until the profile is commissioned; a commissioned one may use the measured
+        # (calibrated) ranges, but never past the physical bounds of the joint.
+        ceiling = HARD_RANGES if self.commissioned else DEVELOPMENT_RANGES
         for name, (low, high) in self.joint_ranges.items():
-            if not math.isfinite(low) or not math.isfinite(high) or low >= high or low < DEVELOPMENT_RANGES[name][0] or high > DEVELOPMENT_RANGES[name][1]:
+            if not math.isfinite(low) or not math.isfinite(high) or low >= high or low < ceiling[name][0] or high > ceiling[name][1]:
                 raise ValueError('Invalid joint limits')
+        if not all(math.isfinite(v) for v in (self.observation_margin_deg, self.min_reach_m)) \
+                or not 0 <= self.observation_margin_deg <= 10 or not 0 <= self.min_reach_m <= 0.2:
+            raise ValueError('Invalid observation margin or minimum reach')
+        if not all(math.isfinite(v) for v in (self.cartesian_step_m, self.completion_tolerance_deg)) \
+                or not 0 <= self.cartesian_step_m <= 0.05 or not 1e-4 <= self.completion_tolerance_deg <= 1.0:
+            raise ValueError('Invalid Cartesian step or completion tolerance')
         if not 0 < self.max_velocity <= 15 or not 0 < self.max_step <= 1 or not 0 < self.period_s <= .1:
             raise ValueError('Development velocity/step ceilings cannot be exceeded')
         if not isinstance(self.gripper_torque_raw, int) or not 1 <= self.gripper_torque_raw <= 100:
@@ -65,7 +84,8 @@ class SO101Limits:
         object.__setattr__(self, 'workspace_max', tuple(self.workspace_max))
 
     def contains(self, position):
-        return valid_position(position) and all(a <= p <= b for a,p,b in zip(self.workspace_min,position,self.workspace_max))
+        return (valid_position(position) and math.hypot(position[0], position[1]) >= self.min_reach_m
+                and all(a <= p <= b for a,p,b in zip(self.workspace_min,position,self.workspace_max)))
 
 
 def require_local_presence(i_am_present=False, *, stdin=None, stdout=None, confirm=None, environ=None):
@@ -130,6 +150,8 @@ class SO101Arm:
         self._halt_sent = False
         self._scale = 1.0
         self.log = []
+        if not self.dry_run and initial_joints is None:
+            initial_joints = bus.read_positions()      # live: start from where the arm really is, not a placeholder pose
         self.joints = dict(initial_joints if initial_joints is not None else {name:0. for name in JOINTS})
         self._validate_observation(self.joints)
         self.position = (0.,0.,.2) if kinematics is None else tuple(kinematics.forward(self.joints))
@@ -150,7 +172,8 @@ class SO101Arm:
 
     def _validate_observation(self, joints):
         self._validate_joints(joints)
-        if not all(self.limits.joint_ranges[name][0] <= value <= self.limits.joint_ranges[name][1] for name,value in joints.items()):
+        margin = self.limits.observation_margin_deg
+        if not all(self.limits.joint_ranges[name][0] - margin <= value <= self.limits.joint_ranges[name][1] + margin for name,value in joints.items()):
             raise ValueError('Observed joint is outside its limits')
 
     def preview_step(self, target, *, speed_scale=1.0):
@@ -185,11 +208,45 @@ class SO101Arm:
                 self._halt_sent = True
                 self.bus.halt()
 
+    def _plan(self, target: Vec3) -> list[dict[str, float]]:
+        """Straight-line waypoints (at most cartesian_step_m apart), each solved by IK from the previous one.
+
+        The WHOLE plan is checked before anything moves: every waypoint inside the workspace, every joint inside its range, the
+        gripper untouched. Any failure raises ValueError, so a bad path is refused with no motion at all."""
+        start = self.position
+        count = max(1, math.ceil(math.dist(start, target) / self.limits.cartesian_step_m))
+        seed, plan = dict(self.joints), []
+        for k in range(1, count + 1):
+            point = tuple(a + (b - a) * k / count for a, b in zip(start, target))
+            if not self.limits.contains(point):
+                raise ValueError('Path leaves the workspace')
+            joints = self.kinematics.inverse(point, dict(seed))
+            if joints.get('gripper') != self.joints['gripper']:
+                raise ValueError('Cartesian planner must preserve gripper position')
+            self._validate_joints(joints)
+            for name, value in joints.items():
+                low, high = self.limits.joint_ranges[name]
+                if not low - 1e-6 <= value <= high + 1e-6:      # a solution pinned at a limit may sit a rounding error past it
+                    raise ValueError(f'{name} would leave its range')
+            plan.append(joints)
+            seed = joints
+        return plan
+
     def move_to(self, target: Vec3, speed_scale: float):
         if self._stop.is_set() or not self.limits.contains(target) or self.kinematics is None:
             self.log.append(('refused_cartesian', target))
             return False
         try:
+            if self.limits.cartesian_step_m > 0:
+                try:
+                    plan = self._plan(target)
+                except ValueError as exc:
+                    self.log.append(('refused_cartesian', target, str(exc)))     # nothing has moved
+                    return False
+                for joints in plan:
+                    if not self.move_joints(joints, speed_scale=speed_scale):
+                        return False
+                return math.dist(self.position, target) <= .002
             joints = self.kinematics.inverse(target, dict(self.joints))
             if joints.get('gripper') != self.joints['gripper']:
                 raise ValueError('Cartesian planner must preserve gripper position')
@@ -245,7 +302,7 @@ class SO101Arm:
                     if not self.limits.contains(self.position):
                         self.halt()
                         return False
-                if all(abs(self.joints[name]-bounded_target[name]) < 1e-4 for name in JOINTS):
+                if all(abs(self.joints[name]-bounded_target[name]) < self.limits.completion_tolerance_deg for name in JOINTS):
                     return all(abs(bounded_target[name]-target[name]) < 1e-4 for name in JOINTS)
             self.halt()
             return False

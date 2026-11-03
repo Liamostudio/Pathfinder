@@ -153,6 +153,19 @@ Measured on the real arm (3 Nov, tip-touch test, `scripts/so101_touch.py`, 20 to
 - Use it: `SO101Kinematics.from_calibration(path)` makes forward take readings and inverse return readings;
   `BaseFrame.from_calibration(path)` gives the marker transform. The simulator keeps the plain URDF model.
 
-Still true: the adapter's `SO101Limits` development ranges (+-45 to +-60 degrees) would refuse Rest, a commissioned profile from
-the calibrated ranges is a separate step, and Cartesian moves on the real arm stay refused until it exists. The calibration only
-covers the touched region (reach about 6-37 cm, mostly in front of and to the left of the base); extrapolating is untested.
+Commissioned profile (3 Nov, `lookandpick/adapters/so101_profile.py`): `commissioned_limits()` builds the adapter's limits from
+the calibrated ranges (`calibration/so101-follower-lerobot-2026-11-03.json`, a copy of LeRobot's file) shrunk by 3 degrees,
+wrist_roll +-170, gripper 0 to 50, a base-frame envelope x -0.12..0.34, y +-0.34, z 0.01..0.30 m and nothing within 8 cm of
+the pan axis, 10 deg/s. It refuses to build unless both calibration files exist and the touch fit's held-out median is at most
+5 mm. `MarkerFrameArm` lets the rest of the system give marker-frame targets (it converts with the measured base frame).
+`scripts/so101_plan.py x y z` shows what the arm WOULD do, in software only.
+Adapter changes this needed (defaults leave everything else as it was): commissioned limits may use the measured ranges (never past
++-180, gripper 0..100); an observed joint may sit up to 6 degrees past its target range (Rest rests on the calibrated ends);
+`move_to` plans a straight line in 1 cm waypoints, solved and checked IN FULL before any motion, so a bad path is refused with
+zero motion; a joint counts as arrived within 0.3 degrees (the old 0.0001 could never be met by a real motor, which reports in
+0.088 degree ticks); and a live arm starts from its observed pose, not a placeholder.
+NOT provided here: a safe live start. `LeRobotFollowerBus` wraps a follower that LeRobot has already connected, and LeRobot's
+`connect()` turns torque on with whatever goal the motors last held. A live move needs the `arm_hold` start used by
+`so101_nudge.py` (goals set to the present pose first, torque on motor by motor, settle watch) and the supply watch in the loop;
+that session wrapper is the next step and nothing live exists yet. The calibration only covers the touched region (reach about
+6-37 cm); extrapolating is untested.
