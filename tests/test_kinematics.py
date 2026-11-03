@@ -151,3 +151,44 @@ def test_base_frame_round_trips_and_defaults_to_the_simulators_offset():
     assert frame.to_base(frame.to_marker(p)) == pytest.approx(p)
     assert BaseFrame().to_marker((0.2, 0.1, 0.05)) == pytest.approx((0.2, -0.02, 0.05))
     assert BaseFrame(yaw_deg=90.0).to_marker((1.0, 0.0, 0.0)) == pytest.approx((0.0, 1.0 - 0.12, 0.0))
+
+
+def test_offsets_and_tool_shift_apply_to_readings_in_both_directions():
+    offsets = {"shoulder_lift": -3.0, "elbow_flex": -6.6, "wrist_flex": -3.6}
+    calibrated = SO101Kinematics(offsets_deg=offsets, tool_shift_m=-0.005)
+    reading = {"shoulder_pan": 10.0, "shoulder_lift": -30.0, "elbow_flex": 40.0, "wrist_flex": 20.0, "wrist_roll": 5.0, "gripper": 3.0}
+    shifted = {**reading, **{n: reading[n] + offsets[n] for n in offsets}}
+    assert calibrated.forward(reading) == pytest.approx(kin.forward(shifted, tool_shift=-0.005))
+    target = calibrated.forward(reading)
+    seed = {**reading, "elbow_flex": 55.0, "shoulder_lift": -15.0}
+    solution = calibrated.inverse(target, seed)                       # returns READINGS, not URDF degrees
+    assert math.dist(calibrated.forward(solution), target) < 0.0011
+    assert solution["wrist_roll"] == seed["wrist_roll"] and solution["gripper"] == seed["gripper"]
+
+
+def test_no_calibration_is_the_plain_urdf_model():
+    reading = {"shoulder_pan": 0.0, "shoulder_lift": -20.0, "elbow_flex": 30.0, "wrist_flex": 10.0, "wrist_roll": 0.0}
+    assert SO101Kinematics().forward(reading) == pytest.approx(kin.forward(reading)) and SO101Kinematics().offsets_deg == dict.fromkeys(
+        ("shoulder_lift", "elbow_flex", "wrist_flex"), 0.0)
+
+
+CALIBRATION = ROOT / "calibration" / "so101-touch-2026-11-03.json"
+TOUCHES = ROOT / "touches" / "2026-11-03.json"
+
+
+@pytest.mark.skipif(not (CALIBRATION.exists() and TOUCHES.exists()), reason="the real tip-touch data is not in this checkout")
+def test_the_saved_calibration_puts_the_real_touches_on_the_table_and_the_marker_where_it_is():
+    """Regression on Liam's real touches (3 Nov): in-sample, so it checks the saved file and the maths, not generalisation
+    (the held-out error, 2-3 mm in height, is in the file)."""
+    import json
+    calibrated = SO101Kinematics.from_calibration(str(CALIBRATION))
+    frame = BaseFrame.from_calibration(str(CALIBRATION))
+    points = json.loads(TOUCHES.read_text())["points"]
+    heights = [calibrated.forward(p["joints"])[2] - (0.003 if p.get("marker_xy") else 0.0) for p in points]
+    assert max(abs(h) for h in heights) < 0.004                                        # every touch within 4 mm of its plane
+    for p in points:
+        if p.get("marker_xy"):
+            x, y, _ = frame.to_marker(calibrated.forward(p["joints"]))
+            assert math.hypot(x - p["marker_xy"][0], y - p["marker_xy"][1]) < 0.012     # marker touches within 12 mm in xy
+    held_out = json.loads(CALIBRATION.read_text())["held_out"]["heights, 4 parameters"]
+    assert held_out["median_mm"] < 4.0

@@ -1,5 +1,5 @@
 {
- "created": "2026-11-03 16:11:12",
+ "created": "2026-11-03 16:18:38",
  "robot_id": "follower",
  "points": [
   {
@@ -135,6 +135,105 @@
     "shoulder_lift": 31.428571428571427,
     "elbow_flex": -5.142857142857143,
     "wrist_flex": 70.50549450549451,
+    "wrist_roll": -68.43956043956044
+   }
+  },
+  {
+   "label": "spot1-tilt0",
+   "marker_xy": null,
+   "joints": {
+    "shoulder_pan": -37.75824175824176,
+    "shoulder_lift": -55.16483516483517,
+    "elbow_flex": 83.64835164835165,
+    "wrist_flex": 69.18681318681318,
+    "wrist_roll": -68.43956043956044
+   }
+  },
+  {
+   "label": "spot1-tilt1",
+   "marker_xy": null,
+   "joints": {
+    "shoulder_pan": -37.67032967032967,
+    "shoulder_lift": -55.16483516483517,
+    "elbow_flex": 90.15384615384616,
+    "wrist_flex": 40.527472527472526,
+    "wrist_roll": -68.43956043956044
+   }
+  },
+  {
+   "label": "spot1-tilt2",
+   "marker_xy": null,
+   "joints": {
+    "shoulder_pan": -37.494505494505496,
+    "shoulder_lift": -45.934065934065934,
+    "elbow_flex": 97.27472527472527,
+    "wrist_flex": 10.10989010989011,
+    "wrist_roll": -68.43956043956044
+   }
+  },
+  {
+   "label": "spot2-tilt0",
+   "marker_xy": null,
+   "joints": {
+    "shoulder_pan": -37.582417582417584,
+    "shoulder_lift": 7.164835164835165,
+    "elbow_flex": 30.9010989010989,
+    "wrist_flex": 64.17582417582418,
+    "wrist_roll": -68.43956043956044
+   }
+  },
+  {
+   "label": "spot2-tilt1",
+   "marker_xy": null,
+   "joints": {
+    "shoulder_pan": -37.494505494505496,
+    "shoulder_lift": 7.164835164835165,
+    "elbow_flex": 35.73626373626374,
+    "wrist_flex": 39.64835164835165,
+    "wrist_roll": -68.43956043956044
+   }
+  },
+  {
+   "label": "spot2-tilt2",
+   "marker_xy": null,
+   "joints": {
+    "shoulder_pan": -39.51648351648352,
+    "shoulder_lift": -26.417582417582416,
+    "elbow_flex": 83.12087912087912,
+    "wrist_flex": 8.87912087912088,
+    "wrist_roll": -68.43956043956044
+   }
+  },
+  {
+   "label": "spot3-tilt0",
+   "marker_xy": null,
+   "joints": {
+    "shoulder_pan": -38.1978021978022,
+    "shoulder_lift": 55.51648351648352,
+    "elbow_flex": -44.0,
+    "wrist_flex": 87.03296703296704,
+    "wrist_roll": -68.35164835164835
+   }
+  },
+  {
+   "label": "spot3-tilt1",
+   "marker_xy": null,
+   "joints": {
+    "shoulder_pan": -40.043956043956044,
+    "shoulder_lift": 41.45054945054945,
+    "elbow_flex": -11.824175824175825,
+    "wrist_flex": 46.15384615384615,
+    "wrist_roll": -68.43956043956044
+   }
+  },
+  {
+   "label": "spot3-tilt2",
+   "marker_xy": null,
+   "joints": {
+    "shoulder_pan": -39.956043956043956,
+    "shoulder_lift": 27.03296703296703,
+    "elbow_flex": 25.978021978021978,
+    "wrist_flex": 6.065934065934066,
     "wrist_roll": -68.43956043956044
    }
   }

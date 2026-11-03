@@ -22,6 +22,7 @@ Frames and conventions (read before trusting a number):
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import math
 
 Vec3 = tuple[float, float, float]
@@ -107,10 +108,20 @@ def _solve3(m: list[list[float]], b: list[float]) -> list[float]:
     return out
 
 
+OFFSET_JOINTS = ("shoulder_lift", "elbow_flex", "wrist_flex")
+
+
 class SO101Kinematics:
     def __init__(self, limits_deg: dict[str, tuple[float, float]] | None = None, *, tolerance_m: float = 0.001,
-                 max_iterations: int = 300):
-        """`limits_deg` narrows the URDF limits (never widens them); defaults to the URDF's own."""
+                 max_iterations: int = 300, offsets_deg: dict[str, float] | None = None, tool_shift_m: float = 0.0):
+        """`limits_deg` narrows the URDF limits (never widens them); defaults to the URDF's own.
+
+        `offsets_deg` and `tool_shift_m` are the real arm's tip-touch calibration (scripts/so101_touch.py): the offsets are ADDED
+        to the readings of shoulder_lift, elbow_flex and wrist_flex before the URDF maths, and `tool_shift_m` moves the tip along
+        the gripper axis. With them, `forward` takes readings and `inverse` returns readings, so callers never see the correction.
+        Without them (the default) this is the plain URDF model, which is what the simulator uses."""
+        self.offsets_deg = {n: float((offsets_deg or {}).get(n, 0.0)) for n in OFFSET_JOINTS}
+        self.tool_shift_m = float(tool_shift_m)
         merged = dict(URDF_LIMITS_DEG)
         for name, (lo, hi) in (limits_deg or {}).items():
             if name in merged:
@@ -121,13 +132,24 @@ class SO101Kinematics:
         self.limits_deg = merged
         self.tolerance_m, self.max_iterations = tolerance_m, max_iterations
 
+    @classmethod
+    def from_calibration(cls, path: str, **kwargs) -> "SO101Kinematics":
+        """Load the offsets and tool shift saved by `so101_touch.py analyse --save`."""
+        with open(path) as handle:
+            record = json.load(handle)
+        return cls(offsets_deg=record["offsets_deg"], tool_shift_m=record["tool_shift_m"], **kwargs)
+
+    def _model(self, joints: dict[str, float]) -> dict[str, float]:
+        """Readings -> URDF degrees."""
+        return {n: (joints[n] + self.offsets_deg.get(n, 0.0)) if n in joints else joints.get(n) for n in CHAIN if n in joints}
+
     # -- forward -----------------------------------------------------------------------------------------------------
     def forward(self, joints: dict[str, float], tool_shift: float = 0.0) -> Vec3:
-        return _frames(_radians(joints), tool_shift)[1]
+        return _frames(_radians(self._model(joints)), self.tool_shift_m + tool_shift)[1]
 
     def link_positions(self, joints: dict[str, float]) -> list[Vec3]:
         """Origins of the five joints and then the TCP, base frame: the arm's skeleton, for hand-distance checks."""
-        frames, tcp = _frames(_radians(joints))
+        frames, tcp = _frames(_radians(self._model(joints)), self.tool_shift_m)
         return [origin for origin, _ in frames] + [tcp]
 
     # -- inverse -----------------------------------------------------------------------------------------------------
@@ -135,12 +157,12 @@ class SO101Kinematics:
         """Joints (degrees) that put the TCP within tolerance of `target`; ValueError if none is reachable in the limits."""
         if len(target) != 3 or not all(math.isfinite(v) for v in target):
             raise ValueError("target must be three finite metres")
-        base = _radians(seed)
+        base = _radians(self._model(seed))
         limits = {n: tuple(math.radians(v) for v in self.limits_deg[n]) for n in SOLVED}
         for start in self._starts(base, target, limits):
             solution = self._descend(start, base["wrist_roll"], target, limits)
             if solution is not None:
-                out = {n: math.degrees(solution[n]) for n in SOLVED}
+                out = {n: math.degrees(solution[n]) - self.offsets_deg.get(n, 0.0) for n in SOLVED}
                 out["wrist_roll"] = seed["wrist_roll"]
                 out["gripper"] = seed.get("gripper", 0.0)
                 return out
@@ -159,7 +181,7 @@ class SO101Kinematics:
         def azimuth(pan):
             angles = {n: 0.0 for n in CHAIN}
             angles.update(shoulder_lift=-0.5, elbow_flex=1.0, wrist_flex=0.6, shoulder_pan=pan)
-            x, y, _ = _frames(angles)[1]
+            x, y, _ = _frames(angles, self.tool_shift_m)[1]
             return math.atan2(y, x)
         a0, a1 = azimuth(0.0), azimuth(0.5)
         slope = math.atan2(math.sin(a1 - a0), math.cos(a1 - a0)) / 0.5
@@ -171,7 +193,7 @@ class SO101Kinematics:
         q = dict(q)
         for _ in range(self.max_iterations):
             angles = dict(q, wrist_roll=roll)
-            frames, tcp = _frames(angles)
+            frames, tcp = _frames(angles, self.tool_shift_m)
             error = [target[i] - tcp[i] for i in range(3)]
             if math.sqrt(sum(e * e for e in error)) < self.tolerance_m:
                 return q
@@ -202,6 +224,15 @@ class BaseFrame:
     """
     offset: Vec3 = (0.0, -0.12, 0.0)
     yaw_deg: float = 0.0
+
+    @classmethod
+    def from_calibration(cls, path: str) -> "BaseFrame":
+        """Load the base frame saved by `so101_touch.py analyse --save` (marker-touch fit)."""
+        with open(path) as handle:
+            frame = json.load(handle)["base_frame"]
+        if not frame:
+            raise ValueError("this calibration has no base frame (no marker touches)")
+        return cls(offset=(frame["offset_m"][0], frame["offset_m"][1], 0.0), yaw_deg=frame["yaw_deg"])
 
     def to_marker(self, p: Vec3) -> Vec3:
         c, s = math.cos(math.radians(self.yaw_deg)), math.sin(math.radians(self.yaw_deg))

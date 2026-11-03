@@ -138,9 +138,21 @@ to 2e-7 m (500 random poses), IK round-trips 300/300 in the working area from se
 Limits it states: joint limits only (no table, collision or hand checks); targets behind the base or almost on the pan axis can
 fail; pan positive turns the arm clockwise seen from above.
 
-Not yet true on the real arm: (1) the zero offsets. At the measured Rest pose the tip comes out 1.4 cm below the base plane
-while the photo shows it just above the table, so the calibration zeros probably differ from the URDF's by a few degrees
-(3 degrees on the shoulder lift is about 1.3 cm at that reach). A tip-touch test would measure it: jog the tip to just touch
-the table and compare FK z with 0. (2) `BaseFrame`'s offset and yaw are placeholders until the marker-to-base measurement.
-(3) `SO101Limits` in the adapter still uses +-45 to +-60 degree development ranges, which would refuse Rest; a commissioned
-profile from the calibrated ranges is a separate step, and Cartesian moves on the real arm stay refused until it exists.
+Measured on the real arm (3 Nov, tip-touch test, `scripts/so101_touch.py`, 20 touches by hand with torque off, data in
+`touches/2026-11-03.json`, result in `calibration/so101-touch-2026-11-03.json`):
+- The URDF zeros are off by a few degrees: with no correction the tip height errs by 23 mm rms (up to 44 mm below the table).
+- Recommended correction (heights-only least squares), added to the readings: shoulder_lift -2.96, elbow_flex -6.61,
+  wrist_flex -3.63 degrees, tool shift -4.7 mm. Held-out error (5 touches left out, 40 random splits): median 2.1 mm, worst
+  3.2 mm in height, against 22.8 mm uncorrected and 7.1 mm with the lift offset alone. Only the lift offset (-3.0 +-0.4) is
+  determined on its own; elbow, wrist and tool trade off (+-3 deg, +-6 mm), so trust their combined effect on the tip, and only
+  near the touched poses. Adding the "same spot" and marker constraints made held-out error worse (3.3 mm median, 8.5 worst; a
+  hand cannot return to exactly the same spot), so it is a cross-check only.
+- Base frame in the marker frame, from the five marker touches (two rounds agree to 5 mm and 0.5 degrees): offset
+  (+217, -31) mm, yaw +138.1 degrees, residuals 2.5-6.1 mm. A yaw that large means the arm's forward axis is not the marker's
+  +X; `BaseFrame` carries it. Marker touches assume a 3 mm plate (`--plate-mm`) and the 120 mm black square.
+- Use it: `SO101Kinematics.from_calibration(path)` makes forward take readings and inverse return readings;
+  `BaseFrame.from_calibration(path)` gives the marker transform. The simulator keeps the plain URDF model.
+
+Still true: the adapter's `SO101Limits` development ranges (+-45 to +-60 degrees) would refuse Rest, a commissioned profile from
+the calibrated ranges is a separate step, and Cartesian moves on the real arm stay refused until it exists. The calibration only
+covers the touched region (reach about 6-37 cm, mostly in front of and to the left of the base); extrapolating is untested.
