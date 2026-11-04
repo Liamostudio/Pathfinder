@@ -210,7 +210,7 @@ class RuntimeSession:
         if getattr(self.runtime,'gate',None) is not None:self.runtime.gate.close()
 
 
-def create_session(model_kind='fake',sim_url='http://127.0.0.1:8766',*,hand_camera=None,intrinsics=None,status_url=None,second_camera=None,second_intrinsics=None):
+def create_session(model_kind='fake',sim_url='http://127.0.0.1:8766',*,hand_camera=None,intrinsics=None,status_url=None,second_camera=None,second_intrinsics=None,gate_size=(640,360)):
     sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'simulation'))
     from sim_env.client import SimulationClient
     log=CallLog(); model=ScriptedModel(log) if model_kind=='fake' else make_model(model_kind,log)
@@ -218,7 +218,7 @@ def create_session(model_kind='fake',sim_url='http://127.0.0.1:8766',*,hand_came
     if hand_camera is not None:
         from .hand_gate import live_hand_gate
         if status_url:raise ValueError('Choose a local gate or an external display source, not both')
-        gate=live_hand_gate(arm,hand_camera,'weights/hand_landmarker.task',marker_mm=120.,intrinsics=intrinsics,hand_height=.08,width=640,height=360,second_cam=second_camera,second_intrinsics=second_intrinsics)
+        gate=live_hand_gate(arm,hand_camera,'weights/hand_landmarker.task',marker_mm=120.,intrinsics=intrinsics,hand_height=.08,width=gate_size[0],height=gate_size[1],second_cam=second_camera,second_intrinsics=second_intrinsics)
         gate.start();arm=gate.arm;tracker=gate.tracker(tracker)
     runtime=Runtime(model,arm=arm,tracker=tracker,log=log,say=lambda text:None,gate=gate,safety=gate.safety if gate else None)
     provider=None

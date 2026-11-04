@@ -282,13 +282,14 @@ def main():
     parser.add_argument('--intrinsics',help='Lens calibration for --hand-gate')
     parser.add_argument('--hand-gate-status-url',help='External loopback status server; display only')
     parser.add_argument('--second-camera',type=int,metavar='CAM',help='With --hand-gate: a second camera (its own lens file) joins the same gate; a hand seen by either slows the arm and a stalled camera stops it')
-    parser.add_argument('--second-intrinsics',help='Lens calibration for --second-camera')
+    parser.add_argument('--second-intrinsics',help='Lens calibration for --second-camera (run at 1280x720)')
+    parser.add_argument('--gate-size',default='640x360',help='Main hand-gate camera resolution WxH; its lens file must be calibrated at the same size (default 640x360)')
     parser.add_argument('--sam-people',action='store_true',help='With --hand-gate: also segment people and hands with SAM 3.1 (needs scripts/sam_worker.py running) into the voxel map; slow, advisory')
     args = parser.parse_args()
     from .workspaces.service import WorkspaceService
     if args.backend=='sim':
         from .deck_runtime import create_session
-        session=create_session(args.model,args.sim_url,hand_camera=args.hand_gate,intrinsics=args.intrinsics,status_url=args.hand_gate_status_url,second_camera=args.second_camera,second_intrinsics=args.second_intrinsics)
+        session=create_session(args.model,args.sim_url,hand_camera=args.hand_gate,intrinsics=args.intrinsics,status_url=args.hand_gate_status_url,second_camera=args.second_camera,second_intrinsics=args.second_intrinsics,gate_size=tuple(int(v) for v in args.gate_size.lower().split('x')))
     else: session=MissionControl()
     workspaces=WorkspaceService(args.workspace_data)
     runtime=getattr(session,'runtime',None)

@@ -318,10 +318,12 @@ def _calibrated_camera(cam: int, intrinsics, *, marker_mm: float, marker_id: int
 
 def live_hand_gate(arm, cam: int, model_path, *, marker_mm: float = 120.0, marker_id: int = 0, intrinsics=None, hfov_deg: float = 70.0,
                    hand_height: float = 0.08, width: int = 640, height: int = 360, safety: Safety | None = None, log=print,
-                   wrap_detector=None, second_cam: int | None = None, second_intrinsics=None) -> HandGate:
+                   wrap_detector=None, second_cam: int | None = None, second_intrinsics=None,
+                   second_size: tuple[int, int] = (1280, 720)) -> HandGate:
     """Real cameras and MediaPipe, each calibrated from the SAME ArUco marker (keep hands out of the picture for a moment).
 
-    With `second_cam`, a second camera (its own lens file) joins the same gate: a hand seen by either slows the arm and a stalled camera stops it.
+    With `second_cam`, a second camera (its own lens file, calibrated and run at `second_size`) joins the same gate: a hand seen by either slows the arm
+    and a stalled camera stops it.
     Calibrates and runs at the same resolution (USB 2 cameras are only fast at low resolution). Needs the hands environment
     (mediapipe, opencv). Raises SystemExit with a plain message if a marker cannot be seen or a lens file does not match."""
     from .adapters.hands import MediaPipeHandDetector
@@ -334,6 +336,6 @@ def live_hand_gate(arm, cam: int, model_path, *, marker_mm: float = 120.0, marke
     extra = []
     if second_cam is not None:
         second, second_cal = _calibrated_camera(second_cam, second_intrinsics, marker_mm=marker_mm, marker_id=marker_id, hfov_deg=hfov_deg,
-                                                width=width, height=height, name="second", log=log)
+                                                width=second_size[0], height=second_size[1], name="second", log=log)
         extra.append(CameraSpec("second", second, lambda: MediaPipeHandDetector(model_path), second_cal))
     return HandGate(camera, make, calibration, arm, safety=safety, hand_height=hand_height, extra_cameras=extra)

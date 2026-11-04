@@ -15,6 +15,7 @@ from typing import Callable, Iterator
 def _open_v4l2(index: int, width: int, height: int, fps: int):
     import cv2  # noqa: PLC0415
     cap = cv2.VideoCapture(index, cv2.CAP_V4L2)
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))   # compressed frames: higher resolutions only run at speed this way over USB 2
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     cap.set(cv2.CAP_PROP_FPS, fps)

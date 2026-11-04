@@ -43,6 +43,7 @@ def main() -> None:
 
     import cv2  # noqa: PLC0415
     cap = cv2.VideoCapture(a.cam, cv2.CAP_V4L2)
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))   # the same compressed mode the gate uses, so the lens is calibrated the way it is run
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, a.width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, a.height)
     if not cap.isOpened():
