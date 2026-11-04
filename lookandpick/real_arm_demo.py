@@ -9,8 +9,7 @@ What it does, in plain words
   * A hand near the tip path slows the sweep (speed-and-separation) and at the stop distance FREEZES the arm: every goal is set
     to the present pose and torque stays on, so the arm holds still. It is not limp and does not drop.
   * It resumes only after the hand has been clear for a moment. If the arm has been held for a long time, or the demo is over,
-    or the operator asks, it folds back to the pose the session started in: slowly, hand-checked at every step, stopping a couple
-    of degrees short of each end stop. Torque is released only once folded.
+    or the operator asks, it folds back to the pose the session started in: slowly, hand-checked at every step. Torque is released only once folded.
   * If it cannot SEE (the hand source is down, stale or fails), it freezes and does NOT fold: moving blind is exactly what the
     safety layer exists to prevent. The operator folds by key once sensing is back, or cuts the supply.
   * A supply collapse, a bus error or a joint that stops following its command is a fault. A supply collapse releases torque as a
@@ -161,7 +160,8 @@ class DemoConfig:
     resume_clear_s: float = 0.3          # the way must be clear this long before a freeze lifts
     fold_clear_s: float = 2.0            # ...and this long before a fold starts (hand just left)
     give_up_s: float = 30.0              # held this long by a hand: stop trying, and fold once it has gone
-    fold_standoff_deg: float = 2.0       # fold stops this far inside each calibrated end stop
+    fold_standoff_deg: float = 0.0       # fold stops this far inside each calibrated end stop. 0 = the exact start pose: a nonzero value asks a folded arm to lift itself off its rest (bench, 4 Nov: lift/elbow could not, fault)
+    pan_margin_deg: float = 2.0          # the sweep ends stay this far inside the pan range
     arrive_tol_deg: float = 1.0
     fold_settle_s: float = 3.0           # the fold goal has been reached this long and every joint is within fold_settle_tol_deg: folded (a servo can sit a degree or two short under gravity)
     fold_settle_tol_deg: float = 4.0
@@ -252,10 +252,10 @@ class HandStopDemo:
         return {k: float(v) for k, v in positions.items()}
 
     def _fold_target(self) -> dict[str, float]:
-        """The start pose, pulled a couple of degrees inside any calibrated end stop so the fold never pushes on one."""
+        """The exact start pose (the arm rested there, so it is not past a stop), or, with a standoff, pulled that far inside each calibrated end stop."""
         target = dict(self.start)
         for name in ARM_JOINTS:
-            if name in self.ranges:
+            if self.cfg.fold_standoff_deg > 0 and name in self.ranges:
                 lo, hi = self.ranges[name]
                 target[name] = min(hi - self.cfg.fold_standoff_deg, max(lo + self.cfg.fold_standoff_deg, target[name]))
         return target
@@ -270,7 +270,7 @@ class HandStopDemo:
 
     def _check_plan(self) -> None:
         lo, hi = self.ranges.get("shoulder_pan", (-math.inf, math.inf))
-        margin = self.cfg.fold_standoff_deg
+        margin = self.cfg.pan_margin_deg
         for off in (self.amp_deg, -self.amp_deg):
             pan = self.start["shoulder_pan"] + off
             if not lo + margin <= pan <= hi - margin:
@@ -285,7 +285,7 @@ class HandStopDemo:
         a, b = self.tip_of(dict(self.start, shoulder_pan=self.start["shoulder_pan"] + self.amp_deg)), self.tip_of(dict(self.start, shoulder_pan=self.start["shoulder_pan"] - self.amp_deg))
         return (f"sweep shoulder_pan {self.start['shoulder_pan']:.1f} deg +/- {self.amp_deg:.1f} deg ({self.cfg.cycles} cycle(s)), "
                 f"tip about {math.dist(a, b) * 100:.1f} cm end to end, at most {self.cfg.max_deg_s * self.cfg.speed_fraction:.1f} deg/s; "
-                f"fold target = the pose it started in, {self.cfg.fold_standoff_deg:g} deg inside any end stop")
+                f"fold target = the exact pose it started in")
 
     # -- one control step ----------------------------------------------------------------------------------------------------
     def _freeze(self, present: dict[str, float]) -> None:

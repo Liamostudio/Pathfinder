@@ -176,11 +176,12 @@ def test_the_demo_ends_by_folding_back_to_the_start_pose_and_only_then_releases_
         assert abs(rig.present[joint] - START[joint]) <= 3.0       # standoff clamps at most the joint's last couple of degrees
 
 
-def test_the_fold_target_stays_inside_each_end_stop_by_the_standoff():
+def test_the_fold_target_is_the_exact_start_pose_unless_a_standoff_is_asked_for():
     start = dict(START, shoulder_lift=-103.5, elbow_flex=96.5)
     demo, *_ = make(rig=FakeRig(start))
-    assert demo.fold_target["shoulder_lift"] == pytest.approx(-102.0)
-    assert demo.fold_target["elbow_flex"] == pytest.approx(95.0)
+    assert demo.fold_target["shoulder_lift"] == pytest.approx(-103.5) and demo.fold_target["elbow_flex"] == pytest.approx(96.5)
+    demo, *_ = make(rig=FakeRig(start), config=DemoConfig(fold_standoff_deg=2.0))
+    assert demo.fold_target["shoulder_lift"] == pytest.approx(-102.0) and demo.fold_target["elbow_flex"] == pytest.approx(95.0)
 
 
 def test_a_fold_is_hand_checked_it_pauses_when_a_hand_comes_in_and_carries_on_when_clear():
