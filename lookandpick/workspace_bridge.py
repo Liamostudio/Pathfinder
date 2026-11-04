@@ -64,5 +64,5 @@ def urdf_joint_radians(reading_deg: dict[str, float], offsets_deg: dict[str, flo
     if "gripper" in reading_deg:
         low, high = URDF_GRIPPER_RAD
         out["gripper"] = low + (high - low) * max(0.0, min(100.0, reading_deg["gripper"])) / 100.0
-    if 'shoulder_pan' in out:out['shoulder_pan'] += math.radians(pan_draw_offset_deg)
+    if 'shoulder_pan' in out:out['shoulder_pan'] -= math.radians(pan_draw_offset_deg)  # the URDF pan joint is flipped (roll pi): direction = foot yaw - pan
     return out

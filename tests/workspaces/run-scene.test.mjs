@@ -26,13 +26,17 @@ test('only the remaining waypoints are dashed as the TCP advances',async()=>{con
 
 test('the workspace layout draws the simulated foot square to the table and keeps the arm pointing where the simulator says',()=>{
  const m={...manifest,robot:{pan_draw_offset_deg:-41.87196561907157}},f={...frame,arm_base_yaw_deg:138.12803438092843};
- const r=runRobot(f,m),pan=.25+(-41.87196561907157*Math.PI/180);
+ const r=runRobot(f,m),pan=.25-(-41.87196561907157*Math.PI/180);
  assert.ok(Math.abs(r.joints.shoulder_pan-pan)<1e-9);
  // the foot's +x axis is marker yaw 180 degrees: marker (-1,0) mapped through the marker matrix (scale .5)
  const expected=markerMatrix(m).slice(0,3).map(row=>-row[0]),got=r.base.slice(0,3).map(row=>row[0]);
  got.forEach((v,i)=>assert.ok(Math.abs(v-expected[i])<1e-9,'foot axis '+i));
- // pan-zero direction = foot yaw + draw offset = the simulator's base yaw (138.13), so foot + shoulder_pan(0) lands on it
+ // the URDF pan joint is flipped (roll pi): direction = foot yaw - pan, so foot 180 with pan - offset points where the simulator does (138.13 at pan 0)
  assert.ok(Math.abs((180-41.87196561907157)-138.12803438092843)<1e-9);
+ // the pan axis (0.0388 m in front of the foot origin) stays where the simulator has it, so the tip lands on the cube (checked against MuJoCo: tip (-0.0396,-0.1298) with these joints)
+ const M=markerMatrix(m),A=.0388353,rad=d=>d*Math.PI/180,Y=138.12803438092843,F=180,o=frame.arm_base_offset;
+ const at=[o[0]+A*(Math.cos(rad(Y))-Math.cos(rad(F))),o[1]+A*(Math.sin(rad(Y))-Math.sin(rad(F))),o[2]],place=p=>M.slice(0,3).map(row=>row[0]*p[0]+row[1]*p[1]+row[2]*p[2]+row[3]);
+ place(at).forEach((v,i)=>assert.ok(Math.abs(v-r.base[i][3])<1e-9,'foot origin '+i));
  // without a base yaw (the default layout) nothing is changed
  assert.equal(runRobot(frame,m).joints.shoulder_pan,.25);
 });

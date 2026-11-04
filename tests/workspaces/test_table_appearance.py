@@ -40,8 +40,8 @@ def test_visual_foot_and_pan_preserve_calibrated_upper_arm_without_mutating_moti
     m=manifest();before=copy.deepcopy(m);placed=measured_placement(m,path);assert m==before
     assert placed['robot']['rotation'][2]==pytest.approx(180)
     joints=calibrated_joints([{'joint':'shoulder_pan','reading':0}],path)
-    assert math.degrees(joints['shoulder_pan'])==pytest.approx(v['pan_draw_offset_deg'])
-    assert placed['robot']['rotation'][2]+math.degrees(joints['shoulder_pan'])==pytest.approx(BaseFrame.from_calibration(path).yaw_deg)
+    assert math.degrees(joints['shoulder_pan'])==pytest.approx(-v['pan_draw_offset_deg'])
+    assert placed['robot']['rotation'][2]-math.degrees(joints['shoulder_pan'])==pytest.approx(BaseFrame.from_calibration(path).yaw_deg)  # direction = foot yaw - pan
 
 
 def test_cache_and_http_are_read_only_and_bound_to_workspace(tmp_path):

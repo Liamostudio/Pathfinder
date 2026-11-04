@@ -3,16 +3,21 @@ import {mul,point,xyz} from './workspace-math.js';
 import {stopView,shortStatus} from './motion-view.js';
 export const finitePoint=p=>Array.isArray(p)&&p.length===3&&p.every(Number.isFinite);
 export function markerMatrix(manifest){const a=manifest?.marker_alignment?.canonical_from_marker,s=manifest?.calibration?.meters_per_map_unit||1;return a?.length===4&&a.every(r=>r.length===4&&r.every(Number.isFinite))?a.map((r,i)=>i<3?r.map(x=>x*s):[...r]):null;}
+const PAN_AXIS_X=0.0388353; // shoulder_pan joint origin x in the SO-101 URDF (base_link frame), metres
 export function runRobot(frame,manifest){
  const matrix=markerMatrix(manifest),offset=frame?.arm_base_offset;
  if(!matrix||!finitePoint(offset)||!frame.joints||!Object.keys(frame.joints).length)return null;
  const joints={};for(const [name,row] of Object.entries(frame.joints)){const value=typeof row==='number'?row:row?.position;if(!Number.isFinite(value))return null;joints[name]=value;}
  // Simulator joint values are URDF radians. In the default layout the base faces along the marker x axis and there is nothing to correct. In the
  // 'workspace' layout the simulated base stands where the tip-touch calibration measured the real one, facing the calibrated pan-zero direction
- // (arm_base_yaw_deg). The physical foot is square to the table edge, so draw the foot at (pan-zero yaw - draw offset) and add the draw offset to
- // shoulder_pan: the arm still points where the simulator's kinematics say, and the foot sits like the real one.
+ // (arm_base_yaw_deg). The physical foot is square to the table edge, so draw the foot at (pan-zero yaw - draw offset) and SUBTRACT the draw offset from
+ // shoulder_pan (the URDF's pan joint is flipped, roll pi, so a positive pan turns the arm clockwise: direction = foot yaw - pan): the arm still points where the simulator's kinematics say, and the foot sits like the real one.
  const yaw=Number(frame?.arm_base_yaw_deg)||0,drawOffset=Number(manifest?.robot?.pan_draw_offset_deg)||0;
- if(yaw){joints.shoulder_pan=(joints.shoulder_pan??0)+drawOffset*Math.PI/180;return {base:mul(matrix,xyz(offset,[0,0,(yaw-drawOffset)*Math.PI/180])),joints};}
+ if(yaw){joints.shoulder_pan=(joints.shoulder_pan??0)-drawOffset*Math.PI/180;
+  // The pan axis stands PAN_AXIS_X in front of the base origin along the foot's x axis, so turning the foot would swing the axis (and the tip, 2.8 cm
+  // at this offset): move the drawn foot so the axis stays where the simulator has it.
+  const a=yaw*Math.PI/180,f=(yaw-drawOffset)*Math.PI/180,at=[offset[0]+PAN_AXIS_X*(Math.cos(a)-Math.cos(f)),offset[1]+PAN_AXIS_X*(Math.sin(a)-Math.sin(f)),offset[2]];
+  return {base:mul(matrix,xyz(at,[0,0,f])),joints};}
  return {base:mul(matrix,xyz(offset)),joints};
 }
 export function runItems(frame,manifest){
