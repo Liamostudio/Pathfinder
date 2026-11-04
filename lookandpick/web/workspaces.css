@@ -14,3 +14,5 @@
 #runtime-replay{position:absolute;inset:0;width:100%;height:100%;border:0;z-index:5;background:#d6d6d3}
 
 .joint-range{position:relative;align-self:center}.joint-range meter{width:100%}.joint-rest-marker{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--ink);pointer-events:none}.trace-legend{display:flex;gap:10px;flex-wrap:wrap;font:10px monospace}
+
+.voxel-manual-reset{min-height:36px;padding:8px 12px;border:1px solid var(--hairline);border-radius:6px}.voxel-manual-reset:disabled{opacity:.45;cursor:default}

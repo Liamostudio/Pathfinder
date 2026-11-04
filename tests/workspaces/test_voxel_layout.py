@@ -28,6 +28,21 @@ def test_manual_policy_does_not_clear_fresh_live_occupancy(layout):
     edit(s,key,[5],True);cleared=edit(s,key,[5],False)
     assert cleared['states'][5]=='occupied' and cleared['observed_states'][5]=='occupied'
 
+def test_bulk_manual_reset_keeps_live_evidence_geometry_and_saved_baseline(layout):
+    s,key=layout;manifest=s.repo.load(key);manifest['draft']['marker_alignment']={**anchor(),'status':'test-marker'};s.repo.write(manifest)
+    edit(s,key,[0,5,9],True)
+    saved=s.repo.save(key);version=saved['version_id'];s.repo.activate(key,version)
+    baseline=s.repo.version(key,version);before=s.areas.snapshot(key,version)
+    import time
+    s.areas.observe(key,{'revision':before['revision'],'sequence':0,'source':'hand','mode':'points','kind':'hand','frame':'marker_metres','calibration_id':'aruco-test','captured_at_ms':time.time()*1000,'points':[Grid(area()).centre(5)]},version)
+    fresh=s.areas.snapshot(key,version)
+    cleared=s.areas.edit(key,{'revision':fresh['revision'],'policy_revision':fresh['policy_revision'],'indices':fresh['manual_blocked'],'blocked':False},version)
+    assert cleared['manual_blocked']==[] and cleared['observed_states']==fresh['observed_states']
+    assert cleared['states'][5]=='occupied' and cleared['states'][0]=='unknown'
+    assert cleared['revision']==before['revision'] and s.repo.version(key,version)==baseline
+    assert WorkspaceService(s.repo.root).areas.snapshot(key,version)['manual_blocked']==[]
+    assert s.areas.snapshot(key)['manual_blocked']==[]
+
 def test_row_edit_active_view_and_version_baseline(layout):
     s,key=layout;v=s.repo.save(key);s.repo.activate(key,v['version_id']);old=s.repo.version(key,v['version_id'])
     edit(s,key,[0,1,2,3],True,v['version_id'])

@@ -48,6 +48,16 @@ policy when their geometry and canonical frame match. Saving a version also
 records a baseline policy for export. Sensor reset and restart do not erase manual
 restrictions. Edits use policy revisions to reject conflicting updates.
 
+**Reset manual no-go cubes (count)** clears every manual block in the current
+volume with one click. It is available above the saved-workspace viewport and
+beside the setup editor's block/unblock controls, and is disabled when no manual
+blocks remain. Reset exits the slice picker so hidden front-side cubes return.
+It waits for earlier queued edits and uses the latest revision-checked policy.
+Live detections, unknown states, volume geometry and the robot STOP latch are
+unchanged. The separate **Reset observations to unknown** control still resets
+only sensor observations. Manual reset persists across reloads/restarts; immutable
+saved-version export baselines remain unchanged.
+
 Fidelity presets target about 256, 1,024 or up to 4,096 cells. The exact cube size
 and resulting count are shown. Custom cube size remains available. Changing
 resolution preserves the volume boundary and conservatively maps blocked regions

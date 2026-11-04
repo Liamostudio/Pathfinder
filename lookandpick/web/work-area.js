@@ -1,4 +1,5 @@
 import {footprintFromDrag,gridShape,cellCorners,volumeCorners,heightFromDrag,EDGE_PAIRS,fidelityCellSize} from './workspace-voxels.js';
+import {clearManualBlocks} from './voxel-policy.js';
 const $=id=>document.getElementById(id),ns='http://www.w3.org/2000/svg';
 async function api(url,payload){const r=await fetch(url,payload===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const v=await r.json();if(!r.ok)throw Error(v.error||'Working-area request failed');return v;}
 const el=(name,attributes={})=>{const e=document.createElementNS(ns,name);for(const [k,v] of Object.entries(attributes))e.setAttribute(k,v);return e;};
@@ -13,6 +14,7 @@ export class WorkAreaEditor{
   $('wa-voxel-mode').onchange=()=>this.renderer?.cubes.setMode($('wa-voxel-mode').value);
   $('wa-pick-back').onclick=()=>this.renderer?.cubes.back();
   $('wa-row-block').onclick=()=>this.renderer?.cubes.edit(this.selectionIndices||this.renderer.cubes.row,true);$('wa-row-unblock').onclick=()=>this.renderer?.cubes.edit(this.selectionIndices||this.renderer.cubes.row,false);
+  $('wa-clear-manual').onclick=action(async()=>{if(!this.renderer)return;this.clearingManual=true;this.paint();try{await this.renderer.cubes.clearManual();}finally{this.clearingManual=false;this.paint();}});
   $('wa-fidelity').onchange=action(async()=>{const value=$('wa-fidelity').value;if(value==='custom'){$('wa-cell').focus();return;}const area=this.manifest?.working_area;if(!area)return;const size=fidelityCellSize(area,Number(value),this.units);await this.commit({...area,cell_size:size});});
   $('wa-demo').onclick=action(()=>this.toggleDemo());$('wa-reset').onclick=action(async()=>{await this.stopSources();await api(this.root+'/voxel-reset',{});await this.poll();});
   $('wa-anchor').onclick=action(async()=>{await this.stopSources();const source=$('wa-source-intrinsics').value.trim();notice('Detecting the marker in original image pixels…');const value=await api(this.root+'/marker-alignment',{view_id:$('wa-source').value,marker_id:Number($('wa-marker').value),marker_size_m:Number($('wa-marker-size').value),marker_size_measured:$('wa-measured').checked,intrinsics:source?JSON.parse(source):null});await this.patch({});notice(`Marker anchored · ${value.draft.marker_alignment.reprojection_px.toFixed(2)} px reprojection error. Robot alignment remains unverified.`);});
@@ -24,9 +26,10 @@ export class WorkAreaEditor{
   this.timer=setInterval(()=>this.poll(),200);window.addEventListener('pagehide',()=>this.dispose());
  }
  setContext(key,manifest,renderer){
-  const identity=key+'/'+manifest.run_id;if(this.identity&&this.identity!==identity){this.stopSources();this.preview=null;this.snapshot=null;this.mode=null;}
+  const identity=key+'/'+manifest.run_id;if(identity!==this.identity)$('wa-clear-status').textContent='';if(this.identity&&this.identity!==identity){this.stopSources();this.preview=null;this.snapshot=null;this.mode=null;}
   this.identity=identity;this.key=key;
   renderer.onVoxelEdit=(indices,blocked)=>this.editVoxels(indices,blocked);
+  renderer.onVoxelClear=async()=>{if(identity!==this.identity)throw Error('Workspace changed; try reset again');const root=this.root,geometry=renderer.cubes.geometry,result=await clearManualBlocks(root,api,()=>identity===this.identity&&root===this.root&&geometry===renderer.cubes.geometry);if(identity!==this.identity||root!==this.root)return;this.snapshot=result.snapshot;this.paint();$('wa-clear-status').textContent=`Reset ${result.cleared} manual no-go cubes. Live detections and unknown cells are unchanged.`;};
   renderer.onVoxelMode=mode=>$('wa-voxel-mode').value=mode;
   renderer.onVoxelSelection=selection=>{this.selectionIndices=selection.selectedIndices;const single=selection.stage==='cells'&&selection.selectedIndices.length===1;$('wa-row-block').textContent=single?'Block selected voxel':'Block selected slice';$('wa-row-unblock').textContent=single?'Unblock selected voxel':'Unblock selected slice';const axis=selection.axis===null?'':'XYZ'[selection.axis];$('wa-pick-status').textContent=['slice','cells'].includes(selection.stage)?`${axis} slice ${selection.layer+1} · ${selection.stage==='cells'?'layer frozen · click a cell, double-click to toggle; Back to move layers':'move along the axis · click to freeze'}`:selection.stage==='axis'?`Voxel ${selection.voxel} vertex selected · click an X, Y or Z edge`:selection.voxel===null?'Hover a cube and click one of its vertices. Double-click toggles one voxel.':`Voxel ${selection.voxel} · click a vertex to choose an axis, or double-click to toggle`;for(const id of ['wa-row-block','wa-row-unblock'])$(id).disabled=!['slice','cells'].includes(selection.stage);};
   renderer.onVoxelError=message=>this.notice(message);
@@ -50,6 +53,7 @@ export class WorkAreaEditor{
  paint(){
   if(!this.renderer||!this.manifest)return;const area=this.preview||this.manifest.working_area;this.renderer.cubes.reveal=this.drag?.kind==='height'?1:0;this.renderer.cubes.setEnabled(!this.drag&&this.mode!=='draw');this.renderer.setWorkingArea(area,this.manifest.marker_alignment,this.preview?null:this.snapshot);
   $('wa-dimensions').textContent=area?`${(area.width/this.units).toFixed(2)} × ${(area.depth/this.units).toFixed(2)} × ${(area.height/this.units).toFixed(2)} · ${gridShape(area).join(' × ')} cubes`:'';this.draw();
+  const blocked=this.renderer.cubes.manual?.size||0;$('wa-clear-manual').disabled=this.clearingManual||!area?.enabled||!blocked;$('wa-clear-manual').textContent=this.clearingManual?'Resetting manual cubes…':`Reset manual no-go cubes (${blocked})`;
  }
  async poll(){
   if(!this.root||this.pollBusy)return;this.pollBusy=true;const root=this.root,identity=this.identity;
