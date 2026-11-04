@@ -149,6 +149,8 @@ class DeckHandSource:
 class DemoConfig:
     amplitude_m: float = 0.04            # tip travel each side of the start, along the pan arc (about 4 cm)
     cycles: int = 2                      # left-right-left passes before the demo ends and folds
+    duration_s: float | None = None      # sweep for this many seconds of wall time (hand pauses included), then fold back and release
+    read_retries: int = 5                # consecutive failed bus reads (50 ms apart) tolerated before torque is released as the last resort
     continuous: bool = False             # keep sweeping until the operator folds (q / f); `cycles` is then ignored
     work_area: tuple[float, float, float, float] | None = None   # marker-frame x0, x1, y0, y1 (m): any hand inside freezes the arm
     speed_fraction: float = 0.3          # of the commissioned 10 deg/s: 3 deg/s at scale 1
@@ -156,7 +158,7 @@ class DemoConfig:
     tick_s: float = 0.05
     max_deg_s: float = 10.0              # the commissioned ceiling; never raised here
     max_sweep_deg: float = 12.0
-    resume_clear_s: float = 1.0          # the way must be clear this long before a freeze lifts
+    resume_clear_s: float = 0.3          # the way must be clear this long before a freeze lifts
     fold_clear_s: float = 2.0            # ...and this long before a fold starts (hand just left)
     give_up_s: float = 30.0              # held this long by a hand: stop trying, and fold once it has gone
     fold_standoff_deg: float = 2.0       # fold stops this far inside each calibrated end stop
@@ -177,6 +179,10 @@ class DemoConfig:
             if len(self.work_area) != 4 or not all(math.isfinite(v) for v in self.work_area) \
                     or not self.work_area[0] < self.work_area[1] or not self.work_area[2] < self.work_area[3]:
                 raise ValueError("work area must be x0 x1 y0 y1 in metres with x0 < x1 and y0 < y1")
+        if self.duration_s is not None and not 5 <= self.duration_s <= 3600:
+            raise ValueError("duration must be between 5 s and 1 hour")
+        if not 1 <= self.read_retries <= 20:
+            raise ValueError("read retries must be 1..20")
         if not 0.03 <= self.stop_distance_m < self.slow_distance_m:
             raise ValueError("stop distance must be at least 3 cm and below the slow distance")
         if not 1 <= self.cycles <= 10 or not 0.02 <= self.tick_s <= 0.1 or not 0 < self.max_deg_s <= 10:
@@ -225,6 +231,9 @@ class HandStopDemo:
         self.clear_since: float | None = None
         self.frozen_since: float | None = None
         self.ticks = 0
+        self.read_failures = 0
+        self.volt_failures = 0
+        self.began: float | None = None
         self.released = False
         self.release_failed: list[str] = []
         self.exit_code_ok = True
@@ -353,14 +362,38 @@ class HandStopDemo:
         """One control step. Raises nothing the caller must handle except SupplyCollapse from the supply check (see run())."""
         now = self.clock()
         self.ticks += 1
-        present = self._read_arm()
-        self._handle_keys()
+        self.began = now if self.began is None else self.began
+        self._handle_keys()                      # keys first: STOP must work even on a tick whose bus read fails
         if self.released:
             return
+        try:
+            present = self._read_arm()
+        except DemoRefused:
+            raise
+        except Exception as exc:  # noqa: BLE001 - a serial hiccup: hold on to the last goals for a few ticks, then give up for real
+            self.read_failures += 1
+            if self.read_failures >= self.cfg.read_retries:
+                raise
+            self.status.note = f"bus read glitch {self.read_failures}/{self.cfg.read_retries} ({type(exc).__name__}): skipped a tick"
+            return
+        self.read_failures = 0
+        if self.cfg.duration_s is not None and not self.fold_requested and now - self.began >= self.cfg.duration_s:
+            self.fold_requested = True
+            self.status.note = f"{self.cfg.duration_s:g} s are up: folding back"
+            self.log(self.status.note)
         if self.ticks % self.cfg.volt_every == 0:
-            readings = self.rig.volts()
-            self.status.lowest_volts = min(readings.values()) if readings else None
-            self.supply_check(readings)
+            try:
+                readings = self.rig.volts()
+            except Exception as exc:  # noqa: BLE001 - a failed voltage read is a glitch like a failed position read; a LOW reading is not
+                self.volt_failures += 1
+                if self.volt_failures >= self.cfg.read_retries:
+                    raise
+                readings = None
+                self.status.note = f"voltage read glitch {self.volt_failures}/{self.cfg.read_retries} ({type(exc).__name__})"
+            if readings is not None:
+                self.volt_failures = 0
+                self.status.lowest_volts = min(readings.values()) if readings else None
+                self.supply_check(readings)
         tip = self.tip_of(present)
         reading = self.hands.read()
         self.status.tip, self.status.sensing, self.status.hands, self.status.stale_s = tip, reading.ok, len(reading.hands), reading.stale_s

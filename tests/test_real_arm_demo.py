@@ -544,3 +544,69 @@ def test_the_default_stop_distance_is_ten_centimetres_from_the_hands_surface_not
     assert demo.mode == "frozen"
     with pytest.raises(ValueError):
         DemoConfig(stop_distance_m=0.01)
+
+
+def test_a_single_failed_bus_read_is_skipped_and_the_sweep_carries_on_but_a_run_of_them_releases():
+    demo, rig, hands, clock = make()
+    advance(demo, clock, 0.5)
+    real = rig.positions
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ConnectionError("Incorrect status packet")
+        return real()
+
+    rig.positions = flaky
+    advance(demo, clock, 0.5)
+    assert not rig.released and demo.mode == "sweeping" and demo.read_failures == 0
+    rig.positions = lambda: (_ for _ in ()).throw(ConnectionError("bus down"))
+    demo.run(max_seconds=1.0)
+    assert rig.released and demo.exit_code_ok is False
+
+
+def test_space_still_works_on_a_tick_whose_bus_read_fails():
+    demo, rig, hands, clock = make()
+    advance(demo, clock, 0.5)
+    rig.positions = lambda: (_ for _ in ()).throw(ConnectionError("glitch"))
+    demo.queue.append(" ")
+    advance(demo, clock, 0.05)
+    assert demo.latched
+
+
+def test_duration_ends_the_sweep_folds_back_and_releases_even_after_a_pause():
+    demo, rig, hands, clock = make(config=DemoConfig(continuous=True, duration_s=30.0, speed_fraction=1.0))
+    advance(demo, clock, 5)
+    hands.reading = near_hand(tip_of(rig.present), 0.05)
+    advance(demo, clock, 5)                                           # held still for 5 s: the clock keeps running
+    hands.reading = HandReading(True, ())
+    advance(demo, clock, 19)
+    assert demo.mode == "sweeping" and not demo.fold_requested
+    advance(demo, clock, 3)
+    assert demo.fold_requested
+    advance(demo, clock, 60)
+    assert rig.released and demo.status.folded
+
+
+def test_resume_comes_a_third_of_a_second_after_the_hand_clears():
+    demo, rig, hands, clock = make()
+    advance(demo, clock, 1)
+    hands.reading = near_hand(tip_of(rig.present), 0.05)
+    advance(demo, clock, 0.5)
+    assert demo.mode == "frozen"
+    hands.reading = HandReading(True, ())
+    advance(demo, clock, 0.5)
+    assert demo.mode == "sweeping"
+
+
+def test_one_failed_voltage_read_is_a_glitch_but_a_low_voltage_still_releases():
+    demo, rig, hands, clock = make(supply=lambda r: (_ for _ in ()).throw(RuntimeError("voltage collapsed")) if min(r.values()) < 4 else None)
+    real = rig.volts
+    flips = iter([True])
+    rig.volts = lambda: (_ for _ in ()).throw(ConnectionError("glitch")) if next(flips, False) else real()
+    advance(demo, clock, 1)
+    assert not rig.released
+    rig.volts_now = {m: 3.0 for m in START}
+    demo.run(max_seconds=1.0)
+    assert rig.released
