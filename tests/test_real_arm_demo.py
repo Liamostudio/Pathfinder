@@ -610,3 +610,31 @@ def test_one_failed_voltage_read_is_a_glitch_but_a_low_voltage_still_releases():
     rig.volts_now = {m: 3.0 for m in START}
     demo.run(max_seconds=1.0)
     assert rig.released
+
+
+class SaggingRig(FakeRig):
+    """A servo that never quite gets there: it settles `sag` degrees short of a goal on the lift and elbow (gravity, friction)."""
+    def positions(self):
+        for j, g in self.goals.items():
+            target = g - 2.5 if j in ("shoulder_lift", "elbow_flex") and g < self.present[j] + 0.0 else g
+            self.present[j] += max(-self.follow, min(self.follow, target - self.present[j]))
+        return dict(self.present)
+
+
+def test_a_fold_that_settles_a_couple_of_degrees_short_still_finishes_and_releases():
+    rig = SaggingRig(dict(START, shoulder_lift=-101.0, elbow_flex=96.0))
+    demo, rig, hands, clock = make(rig=rig)
+    advance(demo, clock, 2)
+    demo.queue.append("f")
+    rig.present["shoulder_lift"] += 3.0                         # displaced above where gravity will let it stay
+    advance(demo, clock, 30)
+    assert rig.released and demo.status.folded
+
+
+def test_a_fold_that_is_far_from_its_target_does_not_pass_as_settled():
+    rig = FakeRig(follow=0.05)                                  # a very slow servo that is still well away: not folded, torque kept
+    demo, rig, hands, clock = make(rig=rig)
+    rig.present["shoulder_pan"] += 30
+    demo.queue.append("f")
+    advance(demo, clock, 6)
+    assert not rig.released and demo.mode in ("folding", "frozen")

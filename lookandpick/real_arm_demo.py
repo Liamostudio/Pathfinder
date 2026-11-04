@@ -163,6 +163,8 @@ class DemoConfig:
     give_up_s: float = 30.0              # held this long by a hand: stop trying, and fold once it has gone
     fold_standoff_deg: float = 2.0       # fold stops this far inside each calibrated end stop
     arrive_tol_deg: float = 1.0
+    fold_settle_s: float = 3.0           # the fold goal has been reached this long and every joint is within fold_settle_tol_deg: folded (a servo can sit a degree or two short under gravity)
+    fold_settle_tol_deg: float = 4.0
     stall_deg: float = 2.0
     stall_reads: int = 4
     stall_progress_deg: float = 0.5
@@ -231,6 +233,7 @@ class HandStopDemo:
         self.clear_since: float | None = None
         self.frozen_since: float | None = None
         self.ticks = 0
+        self.fold_goal_since: float | None = None
         self.read_failures = 0
         self.volt_failures = 0
         self.began: float | None = None
@@ -490,7 +493,14 @@ class HandStopDemo:
             self.goal.update({n: self.goal[n] + deltas[n] * fraction for n in ARM_JOINTS})
             self.rig.write_goals({n: self.goal[n] for n in ARM_JOINTS})
         self._stall_check(present, driven=biggest > 1e-9)
-        arrived = biggest <= 1e-9 and all(abs(present[n] - self.fold_target[n]) <= self.cfg.arrive_tol_deg for n in ARM_JOINTS)
+        if biggest > 1e-9:
+            self.fold_goal_since = None
+        elif self.fold_goal_since is None:
+            self.fold_goal_since = self.clock()
+        error = max(abs(present[n] - self.fold_target[n]) for n in ARM_JOINTS)
+        settled = (self.fold_goal_since is not None and self.clock() - self.fold_goal_since >= self.cfg.fold_settle_s
+                   and error <= self.cfg.fold_settle_tol_deg)
+        arrived = biggest <= 1e-9 and (error <= self.cfg.arrive_tol_deg or settled)
         if arrived and self.mode != "fault":
             self.mode = "folded"
             self.status.mode, self.status.folded = "folded", True
