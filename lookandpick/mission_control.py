@@ -160,6 +160,10 @@ def make_handler(session, workspace_service=None):
         else: session.event(source,command,result,latency_ms,**kwargs)
     telemetry=Telemetry(telemetry_event)
     session.telemetry=telemetry
+    from .glasses_api import dispatch as glasses_dispatch
+    if hasattr(session,'runtime') and not hasattr(session,'glasses_inputs'):
+        from .glasses_input import GlassesInputs
+        GlassesInputs(session)
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):
             pass
@@ -187,6 +191,7 @@ def make_handler(session, workspace_service=None):
         def do_GET(self):
             if not self._local_request():
                 return self._json(403, {'error': 'Local requests only'})
+            if glasses_dispatch(self,session,'GET'):return
             if dispatch(self,workspaces,'GET'):return
             path = unquote(urlsplit(self.path).path)
             try:
@@ -238,6 +243,7 @@ def make_handler(session, workspace_service=None):
         def do_POST(self):
             if not self._local_request():
                 return self._json(403, {'error': 'Local requests only'})
+            if glasses_dispatch(self,session,'POST'):return
             if dispatch(self,workspaces,'POST'):return
             if self.path not in ('/api/action','/api/command','/api/stop','/api/real-arm/connect','/api/real-arm/disconnect','/api/demo'):
                 return self._json(404, {'error': 'Not found'})
@@ -275,12 +281,14 @@ def main():
     parser.add_argument('--hand-gate',type=int,metavar='CAM',help='Explicitly start a real camera hand gate controlling the SIMULATED arm')
     parser.add_argument('--intrinsics',help='Lens calibration for --hand-gate')
     parser.add_argument('--hand-gate-status-url',help='External loopback status server; display only')
+    parser.add_argument('--second-camera',type=int,metavar='CAM',help='With --hand-gate: a second camera (its own lens file) joins the same gate; a hand seen by either slows the arm and a stalled camera stops it')
+    parser.add_argument('--second-intrinsics',help='Lens calibration for --second-camera')
     parser.add_argument('--sam-people',action='store_true',help='With --hand-gate: also segment people and hands with SAM 3.1 (needs scripts/sam_worker.py running) into the voxel map; slow, advisory')
     args = parser.parse_args()
     from .workspaces.service import WorkspaceService
     if args.backend=='sim':
         from .deck_runtime import create_session
-        session=create_session(args.model,args.sim_url,hand_camera=args.hand_gate,intrinsics=args.intrinsics,status_url=args.hand_gate_status_url)
+        session=create_session(args.model,args.sim_url,hand_camera=args.hand_gate,intrinsics=args.intrinsics,status_url=args.hand_gate_status_url,second_camera=args.second_camera,second_intrinsics=args.second_intrinsics)
     else: session=MissionControl()
     workspaces=WorkspaceService(args.workspace_data)
     runtime=getattr(session,'runtime',None)
@@ -288,7 +296,7 @@ def main():
         # The no-go cubes a person draws in the active workspace are hard rules for the (simulated) arm's moves.
         from .zones import from_areas
         runtime.tools.zones=from_areas(workspaces.areas)
-    feed=sam_feed=None
+    feed=sam_feed=None;sam_extra=[]
     gate=getattr(getattr(session,'runtime',None),'gate',None)
     if gate is not None:
         # The safety camera's hands, shown live in the active workspace's voxel map. Read-only and isolated from the gate (advisory display).
@@ -300,6 +308,8 @@ def main():
             from .voxel_feed import workspace_target
             current,observe=workspace_target(workspaces.areas)
             sam_feed=SamPeopleFeed(current,observe,lambda:(gate.camera.latest() or (None,None))[1],SamClient(timeout_s=20),gate.calibration);sam_feed.start()
+            for extra in gate.extra_cameras:   # SAM on each extra camera too: its own calibration, its own source name
+                more=SamPeopleFeed(current,observe,lambda cam=extra.camera:(cam.latest() or (None,None))[1],SamClient(timeout_s=20),extra.calibration,source='sam-people-'+extra.name);more.start();sam_extra.append(more)
     server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(session,workspaces))
     print(f'Mission control: http://127.0.0.1:{server.server_port} (simulation only)' + (' with live hands in the voxel map' if feed else ''), flush=True)
     try:
@@ -310,6 +320,7 @@ def main():
         server.server_close()
         if feed: feed.close()
         if sam_feed: sam_feed.close()
+        for more in sam_extra: more.close()
         if hasattr(session,'close'): session.close()
         session.telemetry.disconnect()
 

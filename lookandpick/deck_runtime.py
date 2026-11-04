@@ -32,7 +32,9 @@ class ScriptedModel:
     def __init__(self, log): self.log = log; self.requests = []
     def chat(self, messages, tools=None, max_tokens=1500):
         self.requests.append(messages)
-        user = messages[1]['content']; scene_text, command = user.split('\n\nRequest: ', 1)
+        user = messages[1]['content']
+        if isinstance(user,list):user=next(item['text'] for item in user if item.get('type')=='text')
+        scene_text, command = user.split('\n\nRequest: ', 1)
         scene = json.loads(scene_text.removeprefix('Scene: ')); objects = scene['objects']
         head=command.lower().split(' and ',1)[0]
         target=next((o for o in objects if o['label'].lower() in head),None)
@@ -60,7 +62,7 @@ class ScriptedModel:
 class RuntimeSession:
     def __init__(self, runtime, *, hand_gate=None):
         self.runtime = runtime; self.arm = runtime.arm; self.safety = runtime.safety
-        self.instance_id = uuid4().hex; self.started = time.monotonic()
+        self.instance_id = uuid4().hex; self.started = time.monotonic(); self.stop_generation = 0
         self._lock = threading.RLock(); self._revision = 1; self.jobs = {}; self.active = None
         self.selected = None; self.hand_mode = 'clear'; self._hand_gate = hand_gate or (runtime.hand_gate_status if getattr(runtime,'gate',None) is not None else None)
         self.frames = []; self._record_start = time.monotonic(); self._shutdown = threading.Event()
@@ -160,7 +162,9 @@ class RuntimeSession:
 
     def stop(self):
         # No action/command lock: must interrupt a command or an in-flight model request.
-        self.safety.stop()
+        self.safety.stop(); self.stop_generation += 1
+        inputs=getattr(self,'glasses_inputs',None)
+        if inputs:inputs.stop_all()
         if getattr(self,'_demo_cancel',None):self._demo_cancel.set()
         process=getattr(self,'_demo_process',None)
         if process and process.poll() is None:process.terminate()
@@ -201,10 +205,12 @@ class RuntimeSession:
 
     def close(self):
         self._shutdown.set()
+        inputs=getattr(self,'glasses_inputs',None)
+        if inputs:self.stop()
         if getattr(self.runtime,'gate',None) is not None:self.runtime.gate.close()
 
 
-def create_session(model_kind='fake',sim_url='http://127.0.0.1:8766',*,hand_camera=None,intrinsics=None,status_url=None):
+def create_session(model_kind='fake',sim_url='http://127.0.0.1:8766',*,hand_camera=None,intrinsics=None,status_url=None,second_camera=None,second_intrinsics=None):
     sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'simulation'))
     from sim_env.client import SimulationClient
     log=CallLog(); model=ScriptedModel(log) if model_kind=='fake' else make_model(model_kind,log)
@@ -212,7 +218,7 @@ def create_session(model_kind='fake',sim_url='http://127.0.0.1:8766',*,hand_came
     if hand_camera is not None:
         from .hand_gate import live_hand_gate
         if status_url:raise ValueError('Choose a local gate or an external display source, not both')
-        gate=live_hand_gate(arm,hand_camera,'weights/hand_landmarker.task',marker_mm=120.,intrinsics=intrinsics,hand_height=.08,width=640,height=360)
+        gate=live_hand_gate(arm,hand_camera,'weights/hand_landmarker.task',marker_mm=120.,intrinsics=intrinsics,hand_height=.08,width=640,height=360,second_cam=second_camera,second_intrinsics=second_intrinsics)
         gate.start();arm=gate.arm;tracker=gate.tracker(tracker)
     runtime=Runtime(model,arm=arm,tracker=tracker,log=log,say=lambda text:None,gate=gate,safety=gate.safety if gate else None)
     provider=None

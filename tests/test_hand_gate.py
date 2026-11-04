@@ -272,3 +272,101 @@ def test_the_fake_feed_cycles_through_every_state():
     states = [fake_gate_status(3.0 * i)["state"] for i in range(5)]
     assert states == ["clear", "slow", "stop", "latched", "stale"]
     assert fake_gate_status(0.0)["latency_ms"]["p95"] and fake_gate_status(9.0)["stale_s"] < 0.15 < fake_gate_status(12.0)["stale_s"]
+
+
+# ---- two cameras behind one gate -----------------------------------------------------------------------------------------
+from lookandpick.hand_gate import CameraSpec, HandFusion  # noqa: E402
+
+
+@pytest.fixture
+def two():
+    det1, det2, cam1, cam2, arm = FakeHandDetector([]), FakeHandDetector([]), FakeCamera(), FakeCamera(), FakeArm()
+    g = HandGate(cam1, lambda: det1, CAL, arm, hand_height=HAND_HEIGHT, warmup_s=2.0, extra_cameras=[CameraSpec("second", cam2, lambda: det2, CAL)])
+    g.det1, g.det2, g.cam1, g.cam2 = det1, det2, cam1, cam2
+    yield g
+    g.close()
+
+
+def test_a_hand_only_the_second_camera_sees_stops_the_arm_and_both_cameras_hands_are_combined(two):
+    two.start()
+    assert wait_for(lambda: two.status()["state"] == "clear")
+    two.det2.detections = [hand_at(0.04, 0.10)]                                  # only the second camera sees a hand near the arm
+    assert wait_for(lambda: two.status()["state"] == "stop")
+    two.det2.detections = []
+    assert wait_for(lambda: two.status()["state"] == "clear") and not two.safety.stopped
+    two.det1.detections = [hand_at(0.30, 0.10)]
+    two.det2.detections = [hand_at(0.34, 0.12)]                                  # two different hands, one per camera
+    assert wait_for(lambda: two.status()["hands"] == 2)
+    ids = {h["id"] for h in two.monitor.world.snapshot()["hands"]}
+    assert ids == {"main:hand-0", "second:hand-0"}
+
+
+def test_the_status_reports_each_camera_but_a_single_camera_gate_does_not(two, gate):
+    two.start()
+    assert wait_for(lambda: two.status()["state"] == "clear")
+    cameras = two.status()["cameras"]
+    assert set(cameras) == {"main", "second"} and all(c["age_s"] < 0.15 for c in cameras.values())
+    gate.start()
+    assert wait_for(lambda: gate.status()["state"] == "clear") and "cameras" not in gate.status()
+
+
+def test_if_either_camera_stalls_the_watchdog_latches_a_stop_and_halts_the_arm(two):
+    two.start()
+    assert wait_for(lambda: two.status()["state"] == "clear")
+    two.cam2.frozen = True                                                       # losing a camera must stop the arm
+    assert wait_for(lambda: two.status()["state"] == "latched") and two.arm._arm.halted
+    two.reset()
+    assert wait_for(lambda: two.status()["state"] == "clear")
+    two.cam1.frozen = True
+    assert wait_for(lambda: two.status()["state"] == "latched")
+
+
+def test_a_second_camera_that_never_delivers_means_the_gate_does_not_run():
+    class Silent(FakeCamera):
+        def latest(self):
+            return None
+    g = HandGate(FakeCamera(), lambda: FakeHandDetector([]), CAL, FakeArm(), warmup_s=0.3,
+                 extra_cameras=[CameraSpec("second", Silent(), lambda: FakeHandDetector([]), CAL)])
+    with pytest.raises(RuntimeError, match="second camera produced no frame"):
+        g.start()
+    assert g.monitor is None and g.tracker(FakeTracker()).hands() == [NO_GATE_HAND]
+
+
+def test_a_manual_stop_and_reset_work_with_two_cameras_and_a_new_fusion_is_built(two):
+    two.start()
+    assert wait_for(lambda: two.status()["state"] == "clear")
+    old = two.fusion
+    two.safety.stop()
+    assert wait_for(lambda: two.status()["state"] == "latched")
+    two.reset()
+    assert two.fusion is not old and wait_for(lambda: two.status()["state"] == "clear")
+
+
+class RecordingMonitor:
+    def __init__(self):
+        self.published, self.started = [], 0
+
+    def publish(self, hands, captured_at, inference_ms=0):
+        self.published.append((captured_at, [h.id for h in hands], inference_ms))
+
+    def start(self):
+        self.started += 1
+
+
+def test_fusion_stamps_the_union_with_the_oldest_capture_and_never_repeats_or_goes_backwards():
+    from lookandpick.world import Hand
+    m = RecordingMonitor()
+    f = HandFusion(m)
+    a, b = Hand("h", (0, 0, 0.1), 0.03), Hand("h", (0.2, 0, 0.1), 0.03)
+    f.publish("main", [a], 10.00, 5.0)          # only main has reported: passed on, stamp 10.00
+    f.publish("second", [b], 10.02, 9.0)        # the oldest capture is still main's 10.00: nothing newer to pass on yet
+    f.publish("main", [], 10.03, 4.0)           # the oldest is now second's 10.02: the union (main now sees nothing) is passed on
+    f.publish("second", [], 10.01, 4.0)         # older than second's previous frame: ignored entirely
+    f.publish("main", [], 10.04, 4.0)           # the oldest is still 10.02: nothing newer
+    f.publish("second", [b], 10.05, 6.0)        # the oldest is now main's 10.04
+    assert [p[0] for p in m.published] == [10.00, 10.02, 10.04]
+    assert [p[1] for p in m.published] == [["main:h"], ["second:h"], ["second:h"]]
+    assert [p[2] for p in m.published] == [5.0, 9.0, 6.0]                      # each with the slowest inference time among the cameras
+    f.start()
+    f.start()
+    assert m.started == 1                                                      # the shared monitor starts once

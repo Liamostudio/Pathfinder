@@ -127,3 +127,25 @@ def test_the_worker_can_return_sampled_mask_pixels_in_original_image_scale():
     assert len(found.points) == 25
     assert all(80 <= x <= 240 and 40 <= y <= 120 for x, y in found.points)         # x4 scale: columns 20-60 -> 80-240, rows 10-30 -> 40-120
     assert detections_from_outputs({"out_binary_masks": masks}, (400, 200))[0].points == ()
+
+
+def test_between_looks_the_last_detections_are_re_offered_so_the_map_does_not_blink_and_a_look_that_sees_nothing_ends_it():
+    import time
+    area = {**AREA, "ttl_ms": 100, "hold_ms": 100}                              # short real times: the voxel service checks real wall-clock age
+    mapping = Occupancy(Grid(area), "rev")
+    posts = []
+    client = FakeClient({"person": [detection([pixel(0.10, 0.05, 0.6)])]})
+    f = SamPeopleFeed(lambda: ("ws", mapping.revision, "aruco-test"), lambda k, p: (posts.append(p), mapping.observe(p, ALIGNMENT)), lambda: FRAME,
+                      client, CAL, reoffer_s=0.5)
+    assert f.tick() == 1
+    first = mapping.snapshot()["counts"]["occupied"]
+    assert first > 0
+    time.sleep(0.2)                                                              # past the 0.1 s hold: the cubes would blink off
+    assert mapping.snapshot()["counts"]["occupied"] == 0
+    assert f.reoffer() == 1 and mapping.snapshot()["counts"]["occupied"] == first    # re-offered with a fresh timestamp: red again
+    assert posts[-1]["sequence"] == posts[-2]["sequence"] + 1 and f.reoffered == 1
+    time.sleep(0.6)                                                              # older than reoffer_s since the look that saw it
+    assert f.reoffer() == 0
+    client.by_prompt = {}                                                        # the next look sees nothing: nothing is carried over
+    f.tick()
+    assert f.reoffer() == 0 and f._last == []
