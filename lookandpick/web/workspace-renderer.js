@@ -59,7 +59,7 @@ export class WorkspaceRenderer{
   this.jointEase=easeJoints?new JointEase(from,manifest.robot.joint_positions,now):null;
   this.manifest=structuredClone(manifest);if(!this.description)return;
   const signature=JSON.stringify(manifest.frames.workspace_from_map);
-  if(this.sourceData&&signature!==this.frameSignature){this.frameSignature=signature;this.photo.data.set(this.sourceData);this.photo.metadata=structuredClone(this.sourceMetadata);this.photo.target=[...this.sourceTarget];transformGaussians(this.photo,manifest);this.photo.capturedView(0);}
+  if(this.sourceData&&signature!==this.frameSignature){this.frameSignature=signature;this.photo.data.set(this.sourceData);this.photo.metadata=structuredClone(this.sourceMetadata);this.photo.target=[...this.sourceTarget];transformGaussians(this.photo,manifest);if(this.runMode)this.filmView();else this.photo.capturedView(0);}   // never snap a Run view back to a source photo
   this.photo.canvas.style.visibility=manifest.layers.background?'visible':'hidden';
   const textureSignature=JSON.stringify([manifest.surfaces,manifest.marker_alignment,manifest.calibration.meters_per_map_unit]);
   if(textureSignature!==this.textureSignature){this.textureSignature=textureSignature;if(this.tableTexture)this.gl.deleteTexture(this.tableTexture);this.tableTexture=null;if(this.tableQuad){this.gl.deleteBuffer(this.tableQuad.buffer);this.buffers=this.buffers.filter(b=>b!==this.tableQuad);}this.tableQuad=null;this.loadTableTexture(this.assetBase,this.generation,++this.textureVersion);}
