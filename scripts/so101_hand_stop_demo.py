@@ -144,7 +144,7 @@ def main(argv=None, *, ask=input) -> None:
     p.add_argument("--continuous", action="store_true", help="keep sweeping until you press q or f (ignores --cycles)")
     p.add_argument("--work-area", type=float, nargs=4, metavar=("X0", "X1", "Y0", "Y1"),
                    help="marker-frame rectangle in metres: any hand inside it freezes the arm, however far from the tip")
-    p.add_argument("--speed", type=float, default=0.3, help="fraction of the commissioned 10 deg/s (default 0.3, at most 0.5)")
+    p.add_argument("--speed", type=float, default=0.3, help="fraction of the commissioned 10 deg/s (default 0.3, at most 1.0)")
     p.add_argument("--torque-limit", type=int, default=TORQUE_LIMIT, choices=range(100, 1001), metavar="100-1000")
     p.add_argument("--status-port", type=int, default=0, help="serve the demo's gate state on this loopback port for Deck's hand-gate panel (0 = off)")
     p.add_argument("--watch", action="store_true", help="read-only live view while you move the arm by hand: positions, tip, and whether the sweep plan "

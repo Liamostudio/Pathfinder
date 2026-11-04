@@ -101,7 +101,7 @@ def test_a_missing_or_non_finite_reading_is_refused():
 
 
 def test_config_cannot_exceed_the_commissioned_speed_or_a_big_sweep():
-    for bad in ({"amplitude_m": 0.2}, {"speed_fraction": 0.9}, {"max_deg_s": 20.0}, {"cycles": 0}):
+    for bad in ({"amplitude_m": 0.2}, {"speed_fraction": 1.2}, {"fold_speed_fraction": 0.9}, {"max_deg_s": 20.0}, {"cycles": 0}):
         with pytest.raises(ValueError):
             DemoConfig(**bad)
 
@@ -351,7 +351,7 @@ def test_the_script_refuses_a_missing_port_a_too_fast_speed_and_a_too_big_sweep(
     with pytest.raises(SystemExit, match="does not exist"):
         script.main(["--port", "/dev/ttyACM9", "--check"])
     with pytest.raises(SystemExit, match="Refused"):
-        script.main(["--port", "/dev/ttyACM0", "--speed", "0.9"])
+        script.main(["--port", "/dev/ttyACM0", "--speed", "1.5"])
     with pytest.raises(SystemExit, match="Refused"):
         script.main(["--port", "/dev/ttyACM0", "--amplitude-cm", "20"])
 

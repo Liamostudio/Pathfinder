@@ -167,8 +167,8 @@ class DemoConfig:
     def __post_init__(self):
         if not 0.005 <= self.amplitude_m <= 0.06:
             raise ValueError("sweep amplitude must be between 0.5 cm and 6 cm")
-        if not 0 < self.speed_fraction <= 0.5 or not 0 < self.fold_speed_fraction <= 0.5:
-            raise ValueError("speed fractions must be above 0 and at most 0.5 of the commissioned speed")
+        if not 0 < self.speed_fraction <= 1.0 or not 0 < self.fold_speed_fraction <= 0.5:
+            raise ValueError("sweep speed must be above 0 and at most 1.0, and fold speed at most 0.5, of the commissioned 10 deg/s")
         if self.work_area is not None:
             if len(self.work_area) != 4 or not all(math.isfinite(v) for v in self.work_area) \
                     or not self.work_area[0] < self.work_area[1] or not self.work_area[2] < self.work_area[3]:
