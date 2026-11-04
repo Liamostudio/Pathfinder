@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en-GB">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pathfinder · recorded run</title><link rel="icon" href="favicon.ico"><link rel="stylesheet" href="style.css"><script type="module" src="player.mjs"></script></head>
+<body>
+<header><a class="brand" href="./">PATHFINDER<span class="brand-dot">↗</span></a><span class="eyebrow">SEE · UNDERSTAND · MOVE SAFELY</span><span class="recorded">● RECORDED TAKE</span></header>
+<main>
+<div class="honesty">Recorded simulation run. The real system runs locally on a laptop with two cameras; the arm shown is simulated.</div>
+<section class="intro"><div><p class="eyebrow">A CHECKABLE SAFETY LAYER, EVERY FRAME</p><h1 id="title">A robot that makes room.</h1><p>Follow the motion, the local safety decisions and the recorded model calls.</p></div><div class="take-meta"><span id="duration">Loading take…</span><span id="cost"></span></div></section>
+<div id="error" role="alert" hidden></div>
+<div class="workspace">
+<section class="scene-panel" aria-label="Recorded workspace">
+<div class="panel-heading"><span>01 / THE WORKSPACE</span><span>TOP-DOWN · MARKER FRAME · METRES</span></div>
+<div class="scene"><canvas id="scene" aria-label="Top-down schematic of the simulated arm, objects and hand envelopes"></canvas>
+<div id="stop" role="status" hidden></div>
+<div class="captions"><div><span id="command-label">COMMAND</span><p id="command">No spoken command recorded yet</p></div><div><span id="answer-label">MODEL RESPONSE</span><p id="answer">Waiting for a recorded response</p></div><div class="arm-caption"><span>ARM</span><p id="arm">At rest</p></div></div>
+</div>
+<div class="safety"><div><span class="eyebrow">LOCAL HAND GATE</span><strong id="gate">Unknown</strong></div><meter id="gauge" min="0" max="1" value="0" aria-label="Recorded speed scale"></meter><div><strong id="scale">—</strong><span id="separation">No measurement</span></div></div>
+<div class="controls"><button id="play" type="button" disabled aria-label="Play recorded take">Play</button><span id="clock">0:00 / 0:00</span><label for="speed">Speed</label><select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select><button id="restart" type="button" disabled>Restart</button></div>
+<label class="scrub-label" for="scrub">Replay position <span>Drag to inspect any moment</span></label><input id="scrub" type="range" min="0" max="1" step="0.001" value="0" disabled>
+<div class="legend"><span><i class="arm-key"></i>Simulated arm</span><span><i class="hand-key"></i>Hand envelope</span><span><i class="route-key"></i>Planned route</span></div>
+</section>
+<aside class="timeline-panel"><div class="panel-heading"><span>02 / THE DECISION TRAIL</span><span id="event-count"></span></div><p class="timeline-help">Nearest event follows the playhead. Select a call to inspect that moment.</p><div id="timeline" role="list" aria-label="Recorded events"></div></aside>
+</div>
+<details open><summary>What this recording demonstrates — and its limits</summary><ul id="limitations"></ul></details>
+<footer><span>Models propose. Local rules decide.</span><span>PATHFINDER / NOVEMBER 2026</span></footer>
+</main>
+</body></html>
