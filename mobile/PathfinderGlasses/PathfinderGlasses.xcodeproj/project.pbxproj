@@ -1,0 +1,36 @@
+// !$*UTF8*$!
+{archiveVersion = 1; classes = {}; objectVersion = 56; objects = {
+EAD47BE67644037D4D9A8A33 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompanionModel.swift; sourceTree = "<group>"; };
+4FF7336E43EFABABFC64692E = { isa = PBXBuildFile; fileRef = EAD47BE67644037D4D9A8A33; };
+9727B9EED8ACD2EE46E136A0 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+2A8F5CFFD87674FB2B9862C3 = { isa = PBXBuildFile; fileRef = 9727B9EED8ACD2EE46E136A0; };
+303A6071C70C0282748170A5 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GatewayClient.swift; sourceTree = "<group>"; };
+9DBA55D396F3DAB8679BC8AB = { isa = PBXBuildFile; fileRef = 303A6071C70C0282748170A5; };
+30DBC1CF817F4C62B3233995 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassesMicrophone.swift; sourceTree = "<group>"; };
+29365738FDE151CB22852D03 = { isa = PBXBuildFile; fileRef = 30DBC1CF817F4C62B3233995; };
+756FFC011B388949688F7C3A = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetaConnection.swift; sourceTree = "<group>"; };
+56A57F84AD66858529A820B2 = { isa = PBXBuildFile; fileRef = 756FFC011B388949688F7C3A; };
+25A01712DDF67D6895D303E1 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingStore.swift; sourceTree = "<group>"; };
+20D7C9C813A593734FD70701 = { isa = PBXBuildFile; fileRef = 25A01712DDF67D6895D303E1; };
+4C381DFC2B8989853B13E5D0 = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PathfinderGlassesApp.swift; sourceTree = "<group>"; };
+37BE1AA2024AE61E9D74A1D0 = { isa = PBXBuildFile; fileRef = 4C381DFC2B8989853B13E5D0; };
+7B594B6DB375E1BF3F23CDD6 = { isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+38A007151ABE87CC01A5B6E9 = { isa = PBXFileReference; explicitFileType = wrapper.application; path = PathfinderGlasses.app; sourceTree = BUILT_PRODUCTS_DIR; };
+BCE16DD0260827ECF338C787 = { isa = PBXGroup; path = PathfinderGlasses; sourceTree = "<group>"; children = (EAD47BE67644037D4D9A8A33,9727B9EED8ACD2EE46E136A0,303A6071C70C0282748170A5,30DBC1CF817F4C62B3233995,756FFC011B388949688F7C3A,25A01712DDF67D6895D303E1,4C381DFC2B8989853B13E5D0,7B594B6DB375E1BF3F23CDD6); };
+FBDC4F23F93125BBEEAE800C = { isa = PBXGroup; name = Products; sourceTree = "<group>"; children = (38A007151ABE87CC01A5B6E9); };
+B28B7AF69320201D1CF206EB = { isa = PBXGroup; sourceTree = "<group>"; children = (BCE16DD0260827ECF338C787,FBDC4F23F93125BBEEAE800C); };
+4E57AE888889001C06A4F7E8 = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (4FF7336E43EFABABFC64692E,2A8F5CFFD87674FB2B9862C3,9DBA55D396F3DAB8679BC8AB,29365738FDE151CB22852D03,56A57F84AD66858529A820B2,20D7C9C813A593734FD70701,37BE1AA2024AE61E9D74A1D0); runOnlyForDeploymentPostprocessing = 0; };
+1F9AF5B548EA54FB62C1B54C = { isa = PBXBuildFile; productRef = F0A35ECD9BE70A4CD852262D; };
+69BE8A4D8E4D9DA4E7DB3928 = { isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (1F9AF5B548EA54FB62C1B54C); runOnlyForDeploymentPostprocessing = 0; };
+D6C9E8A172005E68A1DD674F = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+939F0A170F09F10046D2D012 = { isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/meta/meta-wearables-dat-ios"; requirement = {kind = exactVersion; version = 1.0.1;}; };
+F0A35ECD9BE70A4CD852262D = { isa = XCSwiftPackageProductDependency; package = 939F0A170F09F10046D2D012; productName = MWDATCore; };
+89E1FD6268CC0F221A2BE178 = { isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 17.2; SWIFT_VERSION = 5.0;}; name = Debug; };
+7082CC0B6FC1282FCEABD07A = { isa = XCBuildConfiguration; buildSettings = {PRODUCT_NAME = "$(TARGET_NAME)"; PRODUCT_BUNDLE_IDENTIFIER = studio.liamo.PathfinderGlasses; INFOPLIST_FILE = PathfinderGlasses/Info.plist; GENERATE_INFOPLIST_FILE = NO; IPHONEOS_DEPLOYMENT_TARGET = 17.2; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = ""; CURRENT_PROJECT_VERSION = 1; MARKETING_VERSION = 0.1.0; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_OPTIMIZATION_LEVEL = "-Onone";}; name = Debug; };
+E6DE6C99132752C914FEF632 = { isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 17.2; SWIFT_VERSION = 5.0;}; name = Release; };
+639A7CA24D39909E713B47F7 = { isa = XCBuildConfiguration; buildSettings = {PRODUCT_NAME = "$(TARGET_NAME)"; PRODUCT_BUNDLE_IDENTIFIER = studio.liamo.PathfinderGlasses; INFOPLIST_FILE = PathfinderGlasses/Info.plist; GENERATE_INFOPLIST_FILE = NO; IPHONEOS_DEPLOYMENT_TARGET = 17.2; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; CODE_SIGN_STYLE = Automatic; DEVELOPMENT_TEAM = ""; CURRENT_PROJECT_VERSION = 1; MARKETING_VERSION = 0.1.0; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_OPTIMIZATION_LEVEL = "-O";}; name = Release; };
+389E3AB3166B5E85D4DB22E9 = { isa = XCConfigurationList; buildConfigurations = (89E1FD6268CC0F221A2BE178,E6DE6C99132752C914FEF632); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+D7EA9B19BC5DAF32223C3C8B = { isa = XCConfigurationList; buildConfigurations = (7082CC0B6FC1282FCEABD07A,639A7CA24D39909E713B47F7); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+0E8A3AD980EC179856012B7E = { isa = PBXNativeTarget; buildConfigurationList = D7EA9B19BC5DAF32223C3C8B; buildPhases = (4E57AE888889001C06A4F7E8,69BE8A4D8E4D9DA4E7DB3928,D6C9E8A172005E68A1DD674F); buildRules = (); dependencies = (); name = PathfinderGlasses; packageProductDependencies = (F0A35ECD9BE70A4CD852262D); productName = PathfinderGlasses; productReference = 38A007151ABE87CC01A5B6E9; productType = "com.apple.product-type.application"; };
+98F54143AB4E86B28C3AFEE0 = { isa = PBXProject; attributes = {LastSwiftUpdateCheck = 2640; LastUpgradeCheck = 2640;}; buildConfigurationList = 389E3AB3166B5E85D4DB22E9; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en,Base); mainGroup = B28B7AF69320201D1CF206EB; packageReferences = (939F0A170F09F10046D2D012); productRefGroup = FBDC4F23F93125BBEEAE800C; projectDirPath = ""; projectRoot = ""; targets = (0E8A3AD980EC179856012B7E); };
+}; rootObject = 98F54143AB4E86B28C3AFEE0; }

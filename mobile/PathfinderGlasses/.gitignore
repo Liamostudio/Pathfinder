@@ -1,0 +1,7 @@
+xcuserdata/
+DerivedData/
+*.xcuserstate
+*.mobileprovision
+*.p12
+*.pem
+*.key

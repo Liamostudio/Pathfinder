@@ -22,6 +22,7 @@ Project-authored work started on **26 October 2026**, straight after the kickoff
 - Photo/video workspace setup, persistent reconstruction jobs, editable planes, Gaussian exports and a separate lime URDF robot
 - ArUco-anchored voxel volumes, faint animated cubes, row/single-cell editing and configurable grid fidelity
 - Splat Studio developer tool and local SAM recorded-clip prompt UI
+- Meta Adventurer/iPhone companion source, authenticated HTTPS relay and reviewed voice/photo jobs into the simulator; [setup and native acceptance still needed](mobile/PathfinderGlasses/README.md)
 
 ## Open source we build on
 
@@ -36,6 +37,7 @@ Project-authored work started on **26 October 2026**, straight after the kickoff
 | [LeRobot](https://github.com/huggingface/lerobot) | SO-101 terminal control | Apache 2.0; Deck never powers or moves hardware. |
 | [SO-101 URDF/meshes](https://github.com/TheRobotStudio/SO-ARM100) | Independent lime robot and MuJoCo sim | Apache 2.0; upstream licence and pinned source retained in `simulation/assets/so101/`. |
 | [SAM 3 / SAM 3.1](https://github.com/facebookresearch/sam3) | Segmentation/tracking | Meta **SAM License**, not Apache; gated `facebook/sam3.1` weights are not distributed here. |
+| [Meta Wearables DAT](https://github.com/meta/meta-wearables-dat-ios) | iPhone glasses registration/device status | Meta Wearables Developer Terms; pinned SDK 1.0.1 dependency, not vendored. Native build/device acceptance pending. |
 | [Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3) | Optional developer-tool depth preview | Apache 2.0 source; checkpoint terms depend on the selected variant. Not the main workspace reconstruction path. |
 
 Model weights, third-party source caches, original workspace photos, API keys and local calibration captures are excluded from these commits. See [dependency provenance](docs/dependency-provenance.md).

@@ -5,6 +5,12 @@ import pytest
 from lookandpick.sam_prompt import Studio
 
 
+@pytest.fixture(autouse=True)
+def isolated_fake_gpu_lease(tmp_path, monkeypatch):
+    # These jobs mock inference; they must not wait for or mutate a live SAM worker's lease.
+    monkeypatch.setattr('lookandpick.gpu.LOCK', tmp_path / '.gpu.lock')
+
+
 def test_job_saves_inference_outputs(tmp_path, monkeypatch):
     studio = Studio(tmp_path, '/fake/python')
     job = 'clip'
