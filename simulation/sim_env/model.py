@@ -35,13 +35,13 @@ def layout(name='default'):
     if name == 'workspace':
         base, yaw = _calibrated_base()
         return {'name': 'workspace', 'base': base, 'base_yaw_deg': yaw,
-                'objects': {'obj1': ('red cube', _in_front_of_arm(base, yaw, WORKSPACE_RED[0], WORKSPACE_RED[1]), OBJECTS['obj1'][2]),
-                            'obj2': ('blue cube', _in_front_of_arm(base, yaw, WORKSPACE_BLUE[0], WORKSPACE_BLUE[1]), OBJECTS['obj2'][2])}}
+                'objects': {name: (OBJECTS[name][0], (WORKSPACE_CUBES[name][0], WORKSPACE_CUBES[name][1], 0.018), OBJECTS[name][2]) for name in ('obj1', 'obj2')}}
     raise ValueError(f'unknown layout {name!r}')
 
 
-WORKSPACE_RED = (0.27, 0.02)      # (forward, left) in metres from the measured base, along the pan-zero direction
-WORKSPACE_BLUE = (0.25, -0.12)
+# Marker-frame metres (x right, y toward the wall): just in front of the marker on the side nearest the viewer, 13 cm from its centre (its white plate
+# ends at 8 cm), 14 cm apart, and both reachable from the measured base (checked against the simulator's IK).
+WORKSPACE_CUBES = {'obj1': (-0.04, -0.13), 'obj2': (0.10, -0.13)}
 
 PEN = {'obj3': ('pen', (0.20, 0.0, 0.005), (0.10, 0.12, 0.55, 1))}
 PEN_HALF_SIZE = (0.07, 0.005, 0.005)
