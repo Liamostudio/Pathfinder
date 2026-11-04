@@ -144,13 +144,36 @@ def test_the_workspace_lookup_reads_the_active_workspace_and_returns_no_zones_wh
     mapping.manual_blocked = set(cubes_around(mapping.grid, [0.10, 0.0, 0.05], 0.03))
     anchor = {"id": "a", "canonical_from_marker": IDENTITY, "canonical_units_per_metre": 1.0}
     state = {"active": {"id": "ws", "working_area": AREA}}
-    areas = SimpleNamespace(service=SimpleNamespace(repo=SimpleNamespace(active=lambda: state["active"])), occupancy=lambda key: (mapping, anchor))
+    areas = SimpleNamespace(service=SimpleNamespace(repo=SimpleNamespace(active=lambda: state["active"])), occupancy=lambda key, version=None: (mapping, anchor))
     guard = from_areas(areas, tool_radius_m=0.02)
     assert guard.violation((-0.1, 0.0, 0.05), (0.25, 0.0, 0.05)) is not None
     state["active"] = None
     assert guard.violation((-0.1, 0.0, 0.05), (0.25, 0.0, 0.05)) is None                  # nothing active: nothing blocked
     state["active"] = {"id": "ws", "working_area": {**AREA, "enabled": False}}
     assert guard.violation((-0.1, 0.0, 0.05), (0.25, 0.0, 0.05)) is None                  # the working area is switched off
-    areas.occupancy = lambda key: (mapping, None)
+    areas.occupancy = lambda key, version=None: (mapping, None)
     state["active"] = {"id": "ws", "working_area": AREA}
     assert guard.violation((-0.1, 0.0, 0.05), (0.25, 0.0, 0.05)) is None                  # no marker alignment: the frames cannot be related
+
+
+def test_the_guard_reads_the_active_saved_version_not_an_unsaved_draft():
+    """After a re-scan the DRAFT has no working area while the ACTIVE version does: asking for the draft raised on every move."""
+    from types import SimpleNamespace
+
+    from lookandpick.zones import from_areas
+    mapping = Occupancy(Grid(AREA), "rev")
+    mapping.manual_blocked = set(cubes_around(mapping.grid, [0.10, 0.0, 0.05], 0.03))
+    anchor = {"id": "a", "canonical_from_marker": IDENTITY, "canonical_units_per_metre": 1.0}
+    asked = []
+
+    def occupancy(key, version=None):
+        asked.append((key, version))
+        if version is None:
+            raise ValueError("Draw and enable a working area first")             # what the draft of an unsaved re-scan does
+        return mapping, anchor
+    active = {"id": "ws", "version_id": "v0003", "working_area": AREA}
+    areas = SimpleNamespace(service=SimpleNamespace(repo=SimpleNamespace(active=lambda: active)), occupancy=occupancy)
+    guard = from_areas(areas, tool_radius_m=0.02)
+    assert guard.violation((-0.1, 0.0, 0.05), (0.25, 0.0, 0.05)) is not None          # the cubes of the active version still block
+    assert guard.violation((-0.1, 0.20, 0.05), (0.25, 0.20, 0.05)) is None
+    assert asked and all(version == "v0003" for _, version in asked)

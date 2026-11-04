@@ -85,9 +85,14 @@ def workspace_target(areas):
         active = areas.service.repo.active()
         if not active or not active.get("working_area") or not (active.get("working_area") or {}).get("enabled"):
             return None
-        mapping, anchor = areas.occupancy(active["id"])
+        mapping, anchor = areas.occupancy(active["id"], active.get("version_id"))      # the active SAVED version, not the draft
         return (active["id"], mapping.revision, anchor["id"]) if anchor else None
-    return current, areas.observe
+
+    def observe(key, payload):
+        active = areas.service.repo.active()
+        version = active.get("version_id") if active and active["id"] == key else None
+        return areas.observe(key, payload, version)
+    return current, observe
 
 
 def for_workspaces(areas, hands: Callable[[], list[Hand]], **kwargs) -> VoxelFeed:

@@ -107,3 +107,23 @@ def test_gate_hands_reads_the_monitor_without_ticking_it_and_is_empty_when_the_g
     assert gate_hands(Gate())() == [Hand("h", (0.1, 0.0, 0.08), 0.04)]
     Gate.monitor = None
     assert gate_hands(Gate())() == []
+
+
+def test_the_workspace_target_follows_the_active_saved_version_not_the_draft():
+    """The draft of an unsaved re-scan has no working area; the live feed must read and write the ACTIVE saved version."""
+    from types import SimpleNamespace
+
+    from lookandpick.voxel_feed import workspace_target
+    seen = []
+    anchor = {"id": "anchor-1"}
+    mapping = SimpleNamespace(revision="r1")
+
+    def occupancy(key, version=None):
+        if version is None:
+            raise ValueError("Draw and enable a working area first")
+        return mapping, anchor
+    areas = SimpleNamespace(service=SimpleNamespace(repo=SimpleNamespace(active=lambda: {"id": "ws", "version_id": "v0003", "working_area": {"enabled": True}})),
+                            occupancy=occupancy, observe=lambda key, payload, version=None: seen.append((key, version)) or {"ok": True})
+    current, observe = workspace_target(areas)
+    assert current() == ("ws", "r1", "anchor-1")
+    assert observe("ws", {"mode": "points"}) == {"ok": True} and seen == [("ws", "v0003")]

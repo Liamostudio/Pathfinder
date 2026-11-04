@@ -56,7 +56,8 @@ def from_areas(areas, **kwargs) -> ManualZoneGuard:
         active = areas.service.repo.active()
         if not active or not (active.get("working_area") or {}).get("enabled"):
             return None
-        mapping, anchor = areas.occupancy(active["id"])
+        # The ACTIVE saved version, never the draft: an unsaved re-scan has no working area, and a guard that read it would raise on every move.
+        mapping, anchor = areas.occupancy(active["id"], active.get("version_id"))
         if not anchor:
             return None
         return mapping.grid, mapping.snapshot()["manual_blocked"], anchor["canonical_from_marker"], anchor["canonical_units_per_metre"]
