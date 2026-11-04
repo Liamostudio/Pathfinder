@@ -22,7 +22,10 @@ SYSTEM_PROMPT = (
     "Pick and place only objects that exist in the scene; if the request is ambiguous or impossible, "
     "use say() to ask or explain instead of guessing. Call stop() immediately if asked to stop. "
     "Keep say() messages short. Tool results tell you whether the safety layer allowed the action; "
-    "if blocked, say so briefly and do not retry in a loop."
+    "if blocked, say so briefly and do not retry in a loop. "
+    "A first-person photo from the user's smart glasses may be attached: it shows what the user is looking at. "
+    "Use it with the scene list to resolve words like this, that or 'the one I'm looking at' to exactly one scene object id. "
+    "If the photo does not make it clear which object is meant, use say() to ask and do not move."
 )
 
 TOOL_SCHEMAS = [
@@ -64,7 +67,8 @@ class Orchestrator:
         """Local, instant, never involves the model."""
         return self.tools.stop()
 
-    def run(self, command: str) -> RunResult:
+    def run(self, command: str, image_jpeg: bytes | None = None) -> RunResult:
+        """`image_jpeg` is an optional first-person view (the user's glasses) sent to the model beside the scene; it never reaches the tools."""
         result = RunResult(command)
         if STOP_WORDS.match(command):
             started = time.monotonic()
@@ -74,8 +78,13 @@ class Orchestrator:
                                 (time.monotonic() - started) * 1000, status="blocked")
             result.reply = "stopped"
             return result
-        messages = [{"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Scene: {json.dumps(self.tools.get_scene())}\n\nRequest: {command}"}]
+        text = f"Scene: {json.dumps(self.tools.get_scene())}\n\nRequest: {command}"
+        user: object = text
+        if image_jpeg:
+            import base64
+            user = [{"type": "text", "text": text},
+                    {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(image_jpeg).decode()}}]
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}]
         executed = 0
         for _ in range(self.max_steps):
             if self.tools.safety.stopped:  # after any stop, do not keep asking the model to try again

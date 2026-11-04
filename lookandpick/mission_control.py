@@ -281,14 +281,22 @@ def main():
         from .deck_runtime import create_session
         session=create_session(args.model,args.sim_url,hand_camera=args.hand_gate,intrinsics=args.intrinsics,status_url=args.hand_gate_status_url)
     else: session=MissionControl()
-    server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(session,WorkspaceService(args.workspace_data)))
-    print(f'Mission control: http://127.0.0.1:{server.server_port} (simulation only)', flush=True)
+    workspaces=WorkspaceService(args.workspace_data)
+    feed=None
+    gate=getattr(getattr(session,'runtime',None),'gate',None)
+    if gate is not None:
+        # The safety camera's hands, shown live in the active workspace's voxel map. Read-only and isolated from the gate (advisory display).
+        from .voxel_feed import for_workspaces, gate_hands
+        feed=for_workspaces(workspaces.areas,gate_hands(gate));feed.start()
+    server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(session,workspaces))
+    print(f'Mission control: http://127.0.0.1:{server.server_port} (simulation only)' + (' with live hands in the voxel map' if feed else ''), flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
+        if feed: feed.close()
         if hasattr(session,'close'): session.close()
         session.telemetry.disconnect()
 

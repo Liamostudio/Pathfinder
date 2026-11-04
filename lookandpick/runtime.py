@@ -3,6 +3,7 @@
     python -m lookandpick.runtime "pick up the red cube and put it at 0.18 -0.2"
     python -m lookandpick.runtime --repl --model glimmer
     python -m lookandpick.runtime --scene sam "pick up the red cube"     # Spark names what is on the table, SAM 3.1 finds it
+    python -m lookandpick.runtime --view glasses.jpg --audio ask.wav     # a glasses photo + a spoken request (or --record 5 for the microphone)
     ~/src/hands-venv/bin/python -m lookandpick.runtime --hand-gate 2 --marker-mm 120 --intrinsics calibration/ace-pro.json "pick up the red cube"
         # the live hand gate on a real camera in front of the simulated arm (needs the hands environment; --status-port serves Deck)
 
@@ -47,7 +48,7 @@ class Runtime:
         self.said.append(text)
         self._say(text)
 
-    def command(self, text: str) -> RunResult:
+    def command(self, text: str, image_jpeg: bytes | None = None) -> RunResult:
         # A stop word never waits for anything. Otherwise look at the table first, and if it cannot be seen, do not move.
         if self.scene is not None and not STOP_WORDS.match(text):
             try:
@@ -55,7 +56,7 @@ class Runtime:
             except SceneUnavailable as exc:
                 self._speak("I can't see the table right now, so I won't move.")
                 return RunResult(text, reply="I can't see the table right now, so I won't move.", error=f"scene unavailable: {exc}")
-        return self.orchestrator.run(text)
+        return self.orchestrator.run(text, image_jpeg)
 
     def stop(self) -> str:
         return self.orchestrator.stop()
@@ -155,10 +156,13 @@ def main() -> None:
     p.add_argument("--hand-height", type=float, default=0.08, help="assumed height of hands above the table, metres")
     p.add_argument("--gate-width", type=int, default=640)
     p.add_argument("--gate-height", type=int, default=360)
+    p.add_argument("--view", help="a first-person photo (the glasses' view) sent to Spark beside the scene, to resolve 'this one'")
+    p.add_argument("--audio", help="a spoken request as a WAV file (mono 16-bit, 16 or 24 kHz); transcribed by Muse Voice Transcribe")
+    p.add_argument("--record", type=float, metavar="SECONDS", help="record the request from the microphone instead (needs you present)")
     p.add_argument("--status-port", type=int, help="serve /api/hand-gate and /api/timeline (read-only, loopback) on this port for Deck")
     a = p.parse_args()
-    if not a.command and not a.repl:
-        p.error("give a command or --repl")
+    if not a.command and not a.repl and not (a.audio or a.record):
+        p.error("give a command, --audio/--record, or --repl")
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "simulation"))
     from sim_env.client import SimulationClient
 
@@ -183,6 +187,21 @@ def main() -> None:
         from .status_server import serve  # noqa: PLC0415
         serve(runtime.hand_gate_status, runtime.timeline, a.status_port)
         print(f"Status for Deck: http://127.0.0.1:{a.status_port}/api/hand-gate and /api/timeline")
+    if a.view or a.audio or a.record:
+        from .glasses import GlassesInput, command_from_glasses  # noqa: PLC0415
+        from .voice import VoiceTranscriber, record_wav  # noqa: PLC0415
+        image = Path(a.view).read_bytes() if a.view else None
+        wav = Path(a.audio).read_bytes() if a.audio else (record_wav(a.record) if a.record else None)
+        since = len(runtime.timeline())
+        print("> (glasses input)" + (f" {' '.join(a.command)}" if a.command else ""))
+        result = command_from_glasses(GlassesInput(image, wav, " ".join(a.command) or None), VoiceTranscriber.from_env(log), runtime)
+        for e in runtime.timeline()[since:]:
+            if e["source"] == "Muse Voice Transcribe":
+                print(f"  heard: {e['output']!r} ({e['input']}, {e['latency_ms'] / 1000:.1f} s, ${e['cost_usd']:.5f})")
+        print_result(runtime, result, since)
+        if gate is not None:
+            gate.close()
+        return
     commands = [" ".join(a.command)] if a.command else []
     while True:
         if not commands:
