@@ -8,7 +8,7 @@ import subprocess
 import urllib.error
 import urllib.request
 
-from .config import CAMERAS, DEMO_DEFAULTS
+from .config import CAMERAS
 from .supervisor import port_owner
 
 
@@ -128,7 +128,13 @@ class Probes:
                        re.match(r'^\s*(?:export\s+)?MODEL_API_KEY\s*=\s*[\"\'][^\"\']+[\"\']',line) for line in text.splitlines())
         except OSError:return False
     def ports(self):
-        return {name:port_owner(port) for name,port in self.config.ports.items()}
+        ports={name:port_owner(port) for name,port in self.config.ports.items()}
+        if not ports.get('deck'):
+            for port in self.config.alternate_deck_ports:
+                owner=port_owner(port)
+                if owner:
+                    ports['deck']={**owner,'port':port};break
+        return ports
 
 
 def workspace_status(config):
@@ -151,11 +157,7 @@ def workspace_status(config):
         guard=from_areas(service.areas)
         for name,xy in config.preset.items():
             reason=guard.violation((*xy,.018),(*xy,.018))
-            if reason:result['warnings'].append(f'{name} preset: {reason}; move the manual cubes before Reset scene')
-        # Check actual simulator defaults too; model poses remain marker-frame metres.
-        for label,position in DEMO_DEFAULTS.items():
-            reason=guard.violation(tuple(position),tuple(position))
-            if reason:result['warnings'].append(f'{label} default: {reason}; use clear presets or edit the no-go cubes')
+            if reason:result['warnings'].append(f'{name} preset: {reason}; clear testing cubes or redraw them before filming')
     return result
 
 

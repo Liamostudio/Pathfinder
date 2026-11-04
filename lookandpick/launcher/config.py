@@ -9,9 +9,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PORTS = {'simulator': 8766, 'deck': 8765, 'sam': 8767, 'relay': 8772}
 CAMERAS = {'ace': ('Insta360 Ace Pro', (640, 360), 'calibration/ace-pro.json'),
            'ugreen': ('UGREEN Camera', (1280, 720), 'calibration/ugreen.json')}
-# Marker-frame metres. Refuse the preset if the active manual policy overlaps it.
-PRESET = {'obj1': [.24, -.12], 'obj2': [.16, -.20]}
-DEMO_DEFAULTS = {'red cube': [.23,.10,.018], 'blue cube': [.22,-.13,.018]}
+# Simulator defaults, marker-frame metres. Warn about current manual overlaps.
+PRESET = {'obj1': [.23, .10], 'obj2': [.22, -.13]}
 
 @dataclass(frozen=True)
 class Service:
@@ -31,6 +30,7 @@ class Config:
         self.hands_python = Path.home()/'src/hands-venv/bin/python'
         self.sam_python = Path.home()/'src/sam3-venv/bin/python'
         self.ports = dict(PORTS)
+        self.alternate_deck_ports = (8774,)
         self.preset = {k:list(v) for k,v in PRESET.items()}
         self.poll_s = .15
         self.gpu_timeout = 120

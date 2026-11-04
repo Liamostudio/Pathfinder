@@ -118,13 +118,13 @@ class Supervisor:
             entries = json.loads(self.registry.read_text())
             for name,item in entries.items():
                 current = identity(item['pid'])
-                if name in self.ORDER and current and all(current[k]==item[k] for k in ('start','pgid','argv_hash')) and current['pid']==current['pgid']:
-                    self.services[name] = {'identity':current, 'process':None, 'reader':None}
+                if name in self.ORDER and current and all(current[k]==item[k] for k in ('start','pgid','argv_hash')) and (item.get('external') or current['pid']==current['pgid']):
+                    self.services[name] = {'identity':current, 'process':None, 'reader':None,'external':bool(item.get('external')),'port':item.get('port')}
         except (OSError, ValueError, TypeError, KeyError):
             pass
 
     def _save(self):
-        data = {k:{field:v['identity'][field] for field in ('pid','start','pgid','argv_hash')} for k,v in self.services.items()}
+        data = {k:{**{field:v['identity'][field] for field in ('pid','start','pgid','argv_hash')},'external':v.get('external',False),'port':v.get('port')} for k,v in self.services.items()}
         temp = self.registry.with_suffix('.tmp')
         temp.write_text(json.dumps(data));temp.replace(self.registry)
 
@@ -193,7 +193,16 @@ class Supervisor:
         except OSError:
             return ''
 
-    def stop(self, name):
+    def adopt(self, name, owner, port):
+        if name not in self.ORDER:raise ValueError('Unknown service')
+        with self.lock:
+            current=identity(owner['pid'])
+            if not current or any(current[k]!=owner[k] for k in ('start','pgid','argv_hash')):raise ValueError('Existing process changed; re-check')
+            if not self.running(name):
+                self.services[name]={'identity':current,'process':None,'reader':None,'external':True,'port':port}
+                self._save()
+
+    def stop(self, name, external_confirmed=False):
         with self.lock:
             item = self.services.get(name)
             if not item:
@@ -201,6 +210,24 @@ class Supervisor:
             info = item['identity'];current=identity(info['pid'])
             if current and any(current[k]!=info[k] for k in ('start','pgid','argv_hash')):
                 raise ValueError(f'{name}: process identity changed; refusing to signal it')
+            if item.get('external'):
+                if current is None:
+                    del self.services[name];self._save();return
+                if not external_confirmed:raise ValueError(f'{name}: confirm stopping existing PID {info["pid"]} first')
+                if current and current['pid']==os.getpid():raise ValueError('Refusing to signal the launcher')
+                if current:
+                    try:os.kill(info['pid'],signal.SIGTERM)
+                    except ProcessLookupError:pass
+                    deadline=time.monotonic()+self.config.shutdown_timeout
+                    while identity(info['pid']) and time.monotonic()<deadline:time.sleep(.05)
+                    current=identity(info['pid'])
+                    if current and all(current[k]==info[k] for k in ('start','argv_hash')):
+                        try:os.kill(info['pid'],signal.SIGKILL)
+                        except ProcessLookupError:pass
+                    deadline=time.monotonic()+2
+                    while identity(info['pid']) and time.monotonic()<deadline:time.sleep(.02)
+                if identity(info['pid']):raise ValueError(f'{name}: existing PID is still stopping')
+                del self.services[name];self._save();return
             if info['pgid'] != info['pid'] or info['pgid']==os.getpgrp():
                 raise ValueError('Refusing to signal an unowned process group')
             # In-memory Popen proves group ownership even if its leader has exited.
@@ -223,13 +250,13 @@ class Supervisor:
                 raise ValueError(f'{name}: child processes remain; inspect locally')
             del self.services[name];self._save()
 
-    def stop_all(self):
+    def stop_all(self, external_confirmed=False):
         errors = []
         for name in self.ORDER:
-            try:self.stop(name)
+            try:self.stop(name,external_confirmed)
             except (OSError, ValueError, subprocess.TimeoutExpired) as exc:errors.append(self.redactor.text(exc))
         return errors
 
     def status(self):
-        return {name:{'running':self.running(name), 'pid':item['identity']['pid'], 'log':self.tail(name)}
+        return {name:{'running':self.running(name), 'pid':item['identity']['pid'], 'external':item.get('external',False),'port':item.get('port'), 'log':self.tail(name)}
                 for name,item in list(self.services.items())}

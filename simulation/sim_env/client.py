@@ -34,9 +34,6 @@ class SimulationClient:
     def hands(self):
         return [Hand(**h) for h in self.state()['scene']['hands']]
 
-    def scene_preset(self, positions):
-        return self.action('scene_preset', positions=positions)
-
     def action(self, action, **values):
         request = urllib.request.Request(self.url+'/api/action', json.dumps({'action':action,**values},allow_nan=False).encode(),
                                          {'Content-Type':'application/json'})

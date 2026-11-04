@@ -41,7 +41,7 @@ class Handler(BaseHTTPRequestHandler):
   if self.path=='/api/timeline':return self.send([{'source':'Muse Spark','cost_usd':.001}])
   if self.path=='/api/replay':
    calls+=1;return self.send({'schema_version':1,'frames':[{'t':i,'scene':{}} for i in range(2+calls)],'events':[{'t':1,'source':'system'},{'t':3,'source':'Arm'}],'limitations':['fake']})
-  if self.path.endswith('/voxels'):return self.send({'sources':[{'name':'hand-gate','age_ms':1},{'name':'sam-people-main','age_ms':1}],'fresh':True,'counts':{}})
+  if self.path.endswith('/voxels'):return self.send({'sources':[{'name':'hand-gate','age_ms':1},{'name':'sam-people-person','age_ms':1},{'name':'sam-people-second-hand','age_ms':1}],'fresh':True,'counts':{}})
   return self.send({'backend':'sim','scene':{'arm_position':[.1,.1,.1]},'rest_position':[.1,.1,.1],'busy':False,'stopped':False})
  def do_POST(self):
   data=json.loads(self.rfile.read(int(self.headers.get('Content-Length',0))));self.send({'result':True})
@@ -58,6 +58,7 @@ class FakeConfig(Config):
     def __init__(self, root):
         super().__init__(root)
         self.ports={name:unused_port() for name in self.ports}
+        self.alternate_deck_ports=()
         self.worker=self.root/'fake-service.py';self.worker.write_text(WORKER)
         self.workspace_python=self.hands_python=self.sim_python=self.sam_python=Path(sys.executable)
         self.shutdown_timeout=.1;self.poll_s=.02;self.gpu_timeout=2;self.gate_timeout=1;self.request_timeout=.5
@@ -123,7 +124,7 @@ def test_setup_live_handover_waits_for_reconstruction_lock_and_stop_releases_it(
     assert run(app,'setup')['status']=='completed',app.job
     assert app.config.start_order==['simulator','deck']
     events=[];original=app.workspace;busy={'value':True}
-    app.workspace=lambda c:{**original(c),'jobs':[{'stage':'appearance'}] if busy['value'] else []}
+    app.workspace=lambda c:{**original(c),'active':{'id':'ws-test','version':'v0002','ready':True},'jobs':[{'stage':'appearance'}] if busy['value'] else []}
     with app.config.gpu_lock.open('a+') as lease:
         fcntl.flock(lease,fcntl.LOCK_EX)
         app.launch('live');time.sleep(.1)
@@ -136,6 +137,8 @@ def test_setup_live_handover_waits_for_reconstruction_lock_and_stop_releases_it(
     assert app.config.start_order==['simulator','deck','simulator','sam','deck']
     assert not gpu_lease(app.config.gpu_lock)['free']
     assert app.mode=='live'
+    until(lambda:app.live.get('voxels',{}).get('sam_people_seen'))
+    assert app.live['voxels']['hand_gate_seen']
     assert run(app,'stop_all')['status']=='completed'
     assert gpu_lease(app.config.gpu_lock)['free']
     assert all(port_owner(p) is None for p in app.config.ports.values())
@@ -197,9 +200,13 @@ def test_http_loopback_origin_body_bounds_and_no_arbitrary_arguments(app):
         conn=HTTPConnection('127.0.0.1',server.server_port,timeout=2)
         raw=json.dumps(body) if body is not None else None
         conn.request(method,path,raw,{'Content-Type':'application/json',**(headers or {})})
-        reply=conn.getresponse();data=json.loads(reply.read());conn.close();return reply.status,data
+        reply=conn.getresponse();raw=reply.read();data=json.loads(raw) if 'application/json' in reply.getheader('Content-Type','') else raw.decode();conn.close();return reply.status,data
     try:
         assert call('GET','/api/state')[0]==200
+        assert 'type="module"' in call('GET','/')[1]
+        assert 'export function confirmation' in call('GET','/confirmation.js')[1]
+        assert call('POST','/api/real-arm/connect',{})[0]==404
+        assert call('POST','/api/real-arm/disconnect',{})[0]==404
         assert call('GET','/api/state',headers={'Host':'evil.example'})[0]==403
         assert call('POST','/api/action',{'action':'stop_all'},headers={'Origin':'https://evil.example'})[0]==403
         assert call('POST','/api/action',{'action':'setup','command':'nope'})[0]==400
@@ -257,7 +264,7 @@ def test_zone_warning_uses_real_grid_and_manual_zone_guard(tmp_path):
     assert any('obj1 preset:' in warning and 'no-go zone' in warning for warning in result['warnings'])
 
 
-def test_reset_calls_deck_before_preset_and_refuses_blocked_preset(app):
+def test_reset_keeps_default_positions_and_warns_about_blocked_presets(app):
     attest(app);assert run(app,'live')['status']=='completed'
     requests=[];original=app.request
     def record(base,path,payload=None,timeout=2):
@@ -265,11 +272,12 @@ def test_reset_calls_deck_before_preset_and_refuses_blocked_preset(app):
         return original(base,path,payload,timeout)
     app.request=record
     assert run(app,'reset')['status']=='completed'
-    assert [v[2]['action'] for v in requests]==['reset','scene_preset']
-    assert requests[-1][2]['positions']==app.config.preset
+    assert [v[2]['action'] for v in requests]==['reset']
+    assert app.config.preset=={'obj1':[.23,.10],'obj2':[.22,-.13]}
     app.workspace=lambda c:{**fake_workspace(c),'warnings':['obj1 preset: the path crosses a no-go zone']}
     requests.clear();job=run(app,'reset')
-    assert job['status']=='failed' and 'no-go zone' in job['error'] and not requests
+    assert job['status']=='completed' and any('no-go zone' in line for line in job['lines'])
+    assert [v[2]['action'] for v in requests]==['reset']
 
 
 def test_default_commands_are_fixed_sim_only_and_use_name_resolved_camera_ids(tmp_path):
@@ -338,8 +346,10 @@ def test_existing_tls_certificate_is_never_overwritten_and_ip_mismatch_is_flagge
     assert run(app,'tls')['status']=='completed' and not app.config.start_order
 
 
-def test_selfcheck_stops_live_deck_reads_only_this_run_and_restarts_setup(app):
+def test_selfcheck_requires_stopped_live_deck_reads_only_this_run_and_restarts_setup(app):
     attest(app);assert run(app,'live')['status']=='completed'
+    assert run(app,'selfcheck')['status']=='failed'
+    app.stop_service('deck')
     log=app.config.logs/'selfcheck.log';log.write_text('FAIL old run\n0/1 passed\n')
     service=app.config.service
     def spec(name,**kwargs):
@@ -350,3 +360,101 @@ def test_selfcheck_stops_live_deck_reads_only_this_run_and_restarts_setup(app):
     assert result['status']=='completed',result
     assert app.mode=='setup' and app.supervisor.running('deck') and not app.supervisor.running('sam')
     assert not any('old run' in line for line in result['lines'])
+
+
+def test_confirmed_no_go_clear_reuses_revision_checked_voxel_endpoint(app):
+    attest(app);assert run(app,'setup')['status']=='completed'
+    original=app.request;writes=[];active={'id':'ws-test','version_id':'v0001'}
+    observed=['occupied','unknown','unknown'];snap={'revision':'geometry-live','policy_revision':7,'manual_blocked':[1,2],'observed_states':observed[:]}
+    def request(base,path,payload=None,timeout=2):
+        if path=='/api/workspaces':return {'active':dict(active),'workspaces':[]}
+        if path.endswith('/voxels'):return dict(snap)
+        if path.endswith('/voxel-edits'):
+            writes.append((path,payload));return {**snap,'manual_blocked':[]}
+        return original(base,path,payload,timeout)
+    app.request=request
+    app.checks=[{'id':'workspace','status':'pass','message':'2 manual no-go cubes'}]
+    body={'confirmed':False,'workspace_id':'ws-test','version_id':'v0001'}
+    with pytest.raises(ValueError,match='Confirm'):app.clear_no_go(body)
+    assert not writes
+    app.clear_no_go({**body,'confirmed':True})
+    assert writes==[('/api/workspaces/ws-test/versions/v0001/voxel-edits',{'revision':'geometry-live','policy_revision':7,'indices':[1,2],'blocked':False})]
+    assert snap['observed_states']==observed and 'Cleared 2' in app.manual_reset
+    assert '0 manual no-go cubes' in app.checks[0]['message']
+    writes.clear()
+    def changed(base,path,payload=None,timeout=2):
+        result=request(base,path,payload,timeout)
+        if path.endswith('/voxels'):active['version_id']='v0002'
+        return result
+    app.request=changed
+    with pytest.raises(ValueError,match='changed'):app.clear_no_go({**body,'confirmed':True})
+    assert not writes
+
+
+def test_reconstruction_is_cancelled_through_deck_before_it_is_stopped(app):
+    attest(app);assert run(app,'setup')['status']=='completed'
+    busy={'value':True};app.workspace=lambda c:{**fake_workspace(c),'active':{'id':'ws-test','version':'v0002','ready':True},'jobs':[{'id':'run-test','stage':'appearance'}] if busy['value'] else []}
+    original=app.request;cancelled=[]
+    with app.config.gpu_lock.open('a+') as lease:
+        fcntl.flock(lease,fcntl.LOCK_EX)
+        def request(base,path,payload=None,timeout=2):
+            if path=='/api/workspace-jobs/run-test/cancel':
+                assert app.supervisor.running('deck')
+                cancelled.append(path);busy['value']=False;fcntl.flock(lease,fcntl.LOCK_UN);return {'state':'cancelled'}
+            return original(base,path,payload,timeout)
+        app.request=request
+        job=run(app,'live');assert job['status']=='completed',job
+    assert cancelled==['/api/workspace-jobs/run-test/cancel'] and 'sam' in app.config.start_order
+
+
+def test_adopted_process_requires_confirmation_and_stops_pid_only(app):
+    foreign=Supervisor(app.config)
+    port=app.config.ports['simulator']
+    spec=Service((sys.executable,str(app.config.worker),'--name','external','--child','--port',str(port)),port)
+    foreign.start('simulator',spec);pid=foreign.services['simulator']['identity']['pid']
+    try:
+        until(lambda:len(group_members(pid))>=2 and port_owner(port) is not None)
+        app.supervisor.adopt('simulator',identity(pid),port)
+        assert app.supervisor.status()['simulator']['external']
+        with pytest.raises(ValueError,match='confirm'):app.supervisor.stop('simulator')
+        with pytest.raises(ValueError,match='Confirm'):app.launch('stop_all')
+        app.supervisor.stop('simulator',external_confirmed=True)
+        assert identity(pid) is None and group_members(pid)  # Its child was NOT group-killed.
+    finally:foreign.stop_all()
+    assert group_members(pid)==[]
+
+
+def test_health_checked_existing_deck_is_adopted_and_restart_requires_confirmation(app,monkeypatch):
+    foreign=Supervisor(app.config);spec=app.config.service('deck');foreign.start('deck',spec)
+    pid=foreign.services['deck']['identity']['pid']
+    try:
+        until(lambda:port_owner(spec.port) is not None)
+        monkeypatch.setattr(app,'_external_allowed',lambda name,owner:name=='deck' and owner['pid']==pid)
+        app.probes.ports=lambda:{'deck':identity(pid)}
+        assert run(app,'check')['status']=='completed'
+        assert app.supervisor.services['deck']['external']
+        attest(app)
+        with pytest.raises(ValueError,match='Confirm'):app.launch('setup')
+        with pytest.raises(ValueError,match='confirm'):app.stop_service('deck')
+        app.stop_service('deck',confirmed=True);assert identity(pid) is None
+    finally:foreign.stop_all()
+
+
+def test_setup_is_not_ready_until_a_new_saved_version_is_activated(app):
+    attest(app);assert run(app,'setup')['status']=='completed'
+    assert not app.workspace_ready() and not app.setup_ready
+    app.workspace=lambda c:{**fake_workspace(c),'active':{'id':'ws-test','version':'v0002','ready':True}}
+    until(lambda:app.setup_ready)
+    assert app.workspace_ready()
+
+
+def test_single_camera_gate_still_requires_camera_observations(app):
+    attest(app);app.configure({'second_camera':False})
+    original=app.request
+    def request(base,path,payload=None,timeout=2):
+        result=original(base,path,payload,timeout)
+        if path=='/api/hand-gate':result.pop('cameras',None);result['simulated']=True
+        return result
+    app.request=request
+    job=run(app,'live')
+    assert job['status']=='failed' and 'hand gate' in job['error']

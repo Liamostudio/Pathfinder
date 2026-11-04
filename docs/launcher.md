@@ -22,7 +22,7 @@ system status; they never enable torque or command motors.
    names resolve to their capture nodes (`index=0`), never a remembered video
    index. The Ace Pro is probed at MJPG 640×360 and UGREEN at MJPG 1280×720, with
    a thumbnail and ArUco marker result. A probe closes the camera afterwards.
-   The built-in Integrated Camera is excluded. A live launcher-owned Deck keeps
+   The built-in Integrated Camera is excluded. A healthy adopted or launcher-owned live Deck keeps
    its cameras during Re-check; the live status strip shows their freshness.
 2. Tick **Real arm: 5V supply unplugged / kill switch in reach** and **Hands out of
    both camera views**. These are human confirmations, not electrical sensors.
@@ -33,28 +33,35 @@ system status; they never enable torque or command motors.
    existing reconstruction is reattached rather than abandoned. In Deck click
    **set up workspace**: import the glasses clip, sample about 1 fps, choose 2–4
    good views, reconstruct, align, draw the working volume/no-go cubes, save and
-   activate. The launcher polls the workspace API and shows its stage/Ready
-   version. The `#setup` link opens Deck; its existing navigation still requires
-   the **set up workspace** click.
+   activate. Setup stays amber until a newly saved version is activated; a job
+   marked ready only means ready to review and save. The launcher polls the workspace API. The `#setup` link opens Deck; its existing navigation still requires
+   the **set up workspace** click. The fallback also starts a setup Deck if one
+   is not running. **Clear all no-go cubes (start fresh)** asks for confirmation
+   and clears only the active volume’s manual policy through the existing
+   revision-checked `/voxel-edits` endpoint. Live detections and unknown space
+   are unchanged. Use it to remove cube-picker test residue before drawing fresh
+   restrictions; it is never run automatically.
 4. Choose **fake** for free rehearsal or **spark** (standard) for filming people.
    Model choices are read from the installed Deck's `--help` when the launcher
    starts; restart the launcher after another agent adds a model flag. Options
    apply on the next **Go live**. Turn **SAM people** off if the GPU is unavailable;
    the local CPU hand gate remains required. Turn **Second camera** off for an
    Ace-Pro-only gate; this does not select the UGREEN as a replacement primary.
-5. **Go live** waits for reconstruction to finish/be cancelled, waits for the GPU
+5. **Go live** first cancels running reconstruction through Deck’s existing
+   `/api/workspace-jobs/<run>/cancel` endpoint, before stopping Deck. It waits for the GPU
    lease, checks names/lenses/marker visibility, starts SAM if selected and waits
    for `loaded: true`. It restarts Deck in the hands environment, displays the
    hands-out calibration countdown and waits for >15 fps with fresh camera
    observations (both when enabled). The workspace opens after those checks.
    Startup failures include Deck's sanitised log, such as “marker seen in 0
    frames”. The countdown is an estimate; calibration/health determine readiness.
-6. **Reset scene** between takes calls Deck reset first, waits for the simulator
-   to be idle, unlatched and within 3 cm of its Rest TCP, then applies fixed prop
-   positions. Only prop free joints change; the arm remains at Rest. The preset
-   is refused if the real `zones.from_areas` guard finds a manual no-go overlap.
-   The preflight also warns about the default red/blue cube positions. Edit the
-   manual policy or the trusted config and retry; no cubes are silently cleared.
+6. **Reset scene** calls Deck reset (including the simulator’s reset), then waits
+   for an idle, unlatched simulator within 3 cm of its Rest TCP. The simulator’s
+   default cube positions stay red `[0.23, 0.10]` and blue `[0.22, -0.13]` metres
+   in the marker frame. The real `zones.from_areas` guard warns if today’s manual
+   policy covers either position. Reset does not clear those restrictions; use
+   the confirmed clean-slate action or redraw them before filming. No extra
+   simulator placement action is needed or added.
 7. **Mark replay start** reserves a take number and records a UTC timestamp.
    **Mark replay end / save take** downloads Deck's replay, trims frames/events
    to this take, rebases their times and writes `takes/take-NNN.json`. It keeps
@@ -63,15 +70,17 @@ system status; they never enable torque or command motors.
    are simulator/schematic replays, not camera-video recordings. Self-check,
    reset and service changes are blocked during a take. Stop all attempts to
    export an interrupted take before stopping services.
-8. **Self-check** stops Deck and SAM, runs the fixed `scripts/sim_motion_check.py`
+8. **Self-check** is enabled before Go live, or once Deck is stopped. It stops
+   SAM, runs the fixed `scripts/sim_motion_check.py`
    against the simulator, shows this run's PASS/FAIL output, then restores setup
-   Deck on success. It takes about two minutes and repeatedly resets the scene.
+   Deck on success and resets it to Rest. It takes about two minutes and repeatedly resets the scene.
    Choose Go live again afterwards to rebuild the camera gate. It is disabled
    while a take is recording. No model calls are needed by this check.
 9. **Stop all:** cancels a pending stage and any verified workspace worker, then
    stops relay, Deck, helper jobs, SAM and simulator, waits and escalates to
    SIGKILL for stubborn owned groups. It checks the GPU lease and ports and
-   reports anything still running. An unrelated process is never killed merely
+   reports anything still running. Adopted external services require confirmation
+   and receive signals to their individual PIDs only. An unrelated process is never killed merely
    because it occupies a port. The logs folder button opens the fixed local
    directory with `xdg-open`; the sanitised log viewer works without a file manager.
 
@@ -89,11 +98,13 @@ workspace setup** or **Open arm workspace** links on the page.
 | SAM 3.1 | 8767 | `~/src/sam3-venv/bin/python`; `/health` with `loaded: true` |
 | Optional glasses relay | 8772 | workspace interpreter; HTTPS on the Wi-Fi IPv4 |
 
-Definitions, timeouts and marker-frame presets are in
-`lookandpick/launcher/config.py`. The default presets are red `[0.24, -0.12]`
-and blue `[0.16, -0.20]` metres; they are always checked against the current
-manual policy. The simulator rejects invalid/overlapping/out-of-table presets
-atomically, as well as presets during an arm command, held object or stop.
+Definitions and timeouts are in `lookandpick/launcher/config.py`. Presets match
+`simulation/sim_env/model.py` defaults and are compared directly with marker-frame
+manual zones. Existing recognised services are adopted after a read-only health
+check. A healthy scripted simulator Deck on 8774 can be used until the next
+managed restart, which returns to 8765. The relay’s existing listener is adopted
+without exposing its pairing token; native authenticated requests still require
+that token.
 
 The hands environment was checked for Deck imports, workspace-library access and
 UGREEN lens loading without opening a device or GPU. It needs no SciPy for those
@@ -129,16 +140,19 @@ sessions, never `shell=True` or process-name kill patterns.
 
 The supervisor records PID, kernel start time, group and argument fingerprint
 in `recordings/launcher/processes.json`. A restarted launcher reattaches only
-matching identities. Stop buttons for pre-existing services require a verified
-isolated group in this repository, a recognised simulator-only command and the
-same identity seen at preflight. A shared terminal group or unknown process must
-be stopped locally. Its PID is reported. Stopping one process never kills the
-launcher's own process group.
+matching identities. Known healthy pre-existing services may be adopted even
+when they share a terminal’s process group. Stopping them asks first and signals
+**only their verified PID**, never that group. Launcher-created services use their
+owned groups. Unknown commands or changed identities are reported for local
+review. Quitting the launcher stops its owned services but leaves unconfirmed
+external processes alone; use the confirmed Stop all button before closing.
 
 Child output is scrubbed before writing per-service logs, including values split
 across pipe chunks, environment/.env credentials and the private pairing token.
 Known values remain scrubbed after rotation. API responses and replay exports
-are scrubbed too. Keys are configured locally in `.env`, never entered into this
+are scrubbed too. Confirmations use an in-page focus-trapped overlay; Cancel,
+Escape or an outside click never count as consent. Native prompts are avoided
+because they can block the embedded browser. Keys are configured locally in `.env`, never entered into this
 page. Camera thumbnails stay in the local page's check results. Nothing is
 uploaded to a hosted service by the launcher itself.
 
@@ -152,7 +166,7 @@ The hand gate, no-go policy and stop latch remain local and unchanged.
 
 ```sh
 workspace_splat/.venv/bin/python -m pytest tests/test_launcher.py -q
-simulation/.venv/bin/python -m pytest simulation/tests/test_scene_preset.py -q
+simulation/.venv/bin/python -m pytest simulation/tests/test_motion_support.py -q
 scripts/test_all.sh
 ```
 
@@ -160,9 +174,11 @@ Launcher tests use temporary fake services/probes: no serial port, camera, GPU,
 external network or paid model call. They cover stage/GPU handover, cancelled
 startup, exit/health errors, stubborn child groups, reattachment, port conflicts,
 Host/Origin/body checks, secret scrubbing, real-grid zone warnings, reset order,
-take trimming, self-check log boundaries and TLS mismatch. The camera probe is
-checked with a synthetic marker frame behind a fake capture device. MuJoCo and
-the real local simulator HTTP client check that presets move only props.
+take trimming, self-check log boundaries, TLS mismatch, confirmed clean-slate
+reset, activation readiness, reconstruction cancellation order and PID-only
+stopping of adopted services. The camera probe is
+checked with a synthetic marker frame behind a fake capture device. The existing MuJoCo motion suite covers reset/Rest; its paused-state test now
+reads under the engine lock instead of sampling temporary gravity integration.
 
 Browser acceptance is exercised against disposable fake services and a temporary
 workspace, including safety gating, Setup/Go live, take start/end, reset, Stop
@@ -170,3 +186,9 @@ all and phone-width layout. **Not claimed:** actual camera hot-plugging, a live
 SAM startup, live gate calibration, real person/hand voxel evidence, real glasses,
 physical arm alignment or a filmed take. Liam must run those with the real arm
 unpowered before relying on this for tonight's recording. No milestone is ticked.
+
+The final in-page confirmation has component coverage (explicit affirmative
+click, Cancel, Escape, outside click and focus restoration). A native prompt in
+an earlier temporary preview blocked embedded-browser input. After Liam closed
+that prompt, the final in-page Cancel/Confirm/Escape click-through passed on
+disposable test restrictions; no production policy was cleared.

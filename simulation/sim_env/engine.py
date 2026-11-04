@@ -301,36 +301,6 @@ class Simulation:
         self.world.update(objects=self.objects(), hands=self.hands(), arm_position=self.position)
         return self.world.snapshot()
 
-    def scene_preset(self, positions):
-        """Move only the two demo props, preserving the arm, Rest and stop state."""
-        if not isinstance(positions,dict) or set(positions)!=set(OBJECTS):
-            raise ValueError('Provide the two demo object XY positions')
-        checked={}
-        for name,xy in positions.items():
-            if not isinstance(xy,(list,tuple)) or len(xy)!=2 or any(type(v) not in (int,float) or not math.isfinite(v) for v in xy):
-                raise ValueError('Preset positions must be finite XY metres')
-            if not .08<=xy[0]<=.45 or not -.30<=xy[1]<=.30:
-                raise ValueError('Preset outside the demo tabletop')
-            checked[name]=xy
-        if math.dist(*checked.values())<.06:
-            raise ValueError('Demo objects need at least 6 cm separation')
-        if not self.command_lock.acquire(blocking=False):
-            raise ValueError('Apply presets only while the arm is idle')
-        try:
-            with self.lock:
-                if self.held or self.halted or self.safety.stopped:
-                    raise ValueError('Reset Deck and wait for Rest before applying presets')
-                for name,(x,y) in checked.items():
-                    joint=self.model.joint(name+'_free');addr=joint.qposadr[0];dof=joint.dofadr[0]
-                    self.data.qpos[addr:addr+7]=[x,y,OBJECTS[name][1][2],1,0,0,0]
-                    self.data.qvel[dof:dof+6]=0
-                self.scene_revision+=1
-                mujoco.mj_forward(self.model,self.data)
-                self.event('Demo object preset applied · arm pose unchanged')
-                return True
-        finally:
-            self.command_lock.release()
-
     def randomise(self, seed=0):
         if self.command_lock.locked():
             raise ValueError('Randomise only while idle')
