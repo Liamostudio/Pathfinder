@@ -80,7 +80,7 @@ for(const [category,words] of Object.entries(prompts)){const field=input(categor
 window.addEventListener('pathfinder:navigate',e=>{if(e.detail==='setup'){capabilities();list().then(refresh).catch(e=>notice(e.message));}});
 list().then(()=>selected?refresh():null).catch(e=>notice(e.message));
 
-window.addEventListener('pathfinder-state',e=>{if(e.detail.backend==='sim'&&document.body.dataset.runtimeView==='sim'){$('active-workspace-visual').hidden=true;$('synthetic-stage-panel').hidden=false;}});
+window.addEventListener('pathfinder-state',e=>{activeRenderer?.setRoute(e.detail.route,e.detail.scene?.arm_position);renderer?.setRoute(e.detail.route,e.detail.scene?.arm_position);if(e.detail.backend==='sim'&&document.body.dataset.runtimeView==='sim'){$('active-workspace-visual').hidden=true;$('synthetic-stage-panel').hidden=false;}});
 
 $('ws-measured-robot').onclick=async()=>{try{current=await api(root()+'/robot-placement',{});loaded=null;await refresh();notice('Measured base frame applied to the visual robot. Save a new version to activate it.');}catch(e){notice(e.message);}};
 api('/api/workspace-measurements').then(m=>{$('wa-marker-size').value=m.marker_size_m;$('wa-measured').checked=m.marker_size_measured;}).catch(()=>{});

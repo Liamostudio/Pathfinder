@@ -113,3 +113,37 @@ Load a bench `--trace` CSV locally for per-move voltage/time and voltage/observe
 On the Runtime backend, Run demo builds the seeded MuJoCo scenario in an isolated simulation subprocess, then **plays the recording**, explicitly labelled. This prevents wall-clock camera/model jitter from changing the filming sequence. It uses a scripted model, an injected hand which slows/stops/resumes the arm during pick/place, and STOP during a second move. Three independent exporter runs must match exactly. It does not run a real camera or hardware. STOP also cancels demo generation. The original fake workbench retains its simple scripted button demo.
 
 `GET /api/replay` exports Runtime trajectory samples and CallLog events from the current session. The export-session button downloads this replay in Runtime mode. Recorded simulated scenes contain no source photographs. Regenerate the packaged demo with `simulation/.venv/bin/python -m lookandpick.deck_demo --output replay/demo.json --embed`.
+## Motion status and controls (4 November 2026)
+
+Deck accepts these optional fields in `/api/state`:
+
+```json
+{
+  "stop": {"kind":"fault", "reason":"Camera stalled", "recovering_in_s":1.2, "resets_left":2},
+  "route": {"kind":"over", "waypoints":[[0,0,0.3],[0.2,0,0.3],[0.2,0,0.1]]}
+}
+```
+
+Stop kinds are `person` and `fault`. Route kinds are `over`, `around` and `hand`,
+with waypoints in marker-frame metres. Absent fields clear the corresponding
+display. A person stop shows **STOP (you)** and never displays an automatic
+countdown. Fault recovery is decided by the runtime; Deck only shows its supplied
+countdown/reset allowance and marks stale updates unavailable.
+
+The adapter reads `Runtime.motion_status() -> dict`, or an injected
+`RuntimeSession(..., motion_status=callback)` for a fake feed. Only `stop` and
+`route` are copied; a display feed cannot override the safety latch or job state.
+`stop_distance_m` comes from the actual session safety configuration. The controls
+send `cancel` and `carry on` directly to `/api/command`, independently of a running
+instruction. Cancel uses the existing local runtime cancellation; Carry on calls
+`Runtime.resume()` and is disabled until that method is available. Neither goes
+to a model. The reset button retains its existing action. Claude owns the recovery,
+Rest, retry and route-execution logic; this UI does not implement those decisions.
+
+Short `Arm` and `Safety` timeline entries appear in the status area and the
+tools/safety filter. Routes appear in the runtime schematic and, when marker
+alignment is available, in the saved/setup CAD viewer. CAD conversion uses
+`canonical_from_marker` and the workspace's metres-per-unit scale; unanchored
+scenes do not invent a transform. Fixed obstacles are the user's manual no-go
+cubes, not automatically detected objects. A drawn route is a simulator preview,
+not physical clearance or full-arm collision certification.

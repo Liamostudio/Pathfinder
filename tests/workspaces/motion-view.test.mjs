@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import {stopView,routePoints,routeFrame,routeVertices,schematicRoute,shortStatus,isArmEvent} from '../../lookandpick/web/motion-view.js';
+assert.equal(stopView({}).title,'');
+assert.equal(stopView({stopped:true}).title,'STOPPED');
+const person=stopView({stopped:true,stop:{kind:'person',reason:'STOP button',recovering_in_s:1,resets_left:3}});
+assert.equal(person.title,'STOP (you)');assert(!person.recovery.includes('1.0'));assert.match(person.recovery,/No automatic/);
+const fault=stopView({stopped:true,stop:{kind:'fault',reason:'Camera stalled',recovering_in_s:1.2,resets_left:2}});
+assert.equal(fault.reason,'Camera stalled');assert.match(fault.recovery,/1.2 s.*2 automatic/);
+assert.match(stopView({stop:{kind:'fault',resets_left:0,recovering_in_s:0}}).recovery,/limit reached/);
+assert.match(stopView({stop:{kind:'fault',recovering_in_s:NaN,resets_left:3}}).recovery,/Waiting for healthy/);
+const route={kind:'over',waypoints:[[0,0,.3],[.2,0,.3],[.2,0,.1]]};
+assert.equal(routePoints(route,[0,0,.1]).length,4);assert.deepEqual(schematicRoute(route,[0,0,.1],true)[0],[480,280]);
+const first=routeFrame(null,route,[0,0,.1]);assert.equal(routeFrame(first,route,[.2,0,.3]),first);
+assert.deepEqual(first.origin,[0,0,.1]); // Moving through a route must not redraw a backwards leg to its first waypoint.
+assert.deepEqual(routeFrame(first,{...route,kind:'hand'},[.2,0,.3]).origin,[.2,0,.3]);
+assert.equal(routeFrame(first,null,[0,0,0]).origin,null);
+for(const bad of [{kind:'unknown',waypoints:[[0,0,0]]},{kind:'over',waypoints:[[0,0,NaN]]},{kind:'over',waypoints:Array(129).fill([0,0,0])}])assert.deepEqual(routePoints(bad),[]);
+const matrix=[[2,0,0,1],[0,2,0,0],[0,0,2,0],[0,0,0,1]],vertices=routeVertices(route,null,{canonical_from_marker:matrix},.5);
+assert(Math.abs(vertices[0]-.5)<1e-6&&Math.abs(vertices[2]-.3)<1e-6);assert.equal(routeVertices(route,null,null).length,0);
+const events=[{source:'Arm',input:'status',output:'Going around'},{source:'Muse Spark',input:'request',output:'A long model answer'}];
+assert.equal(shortStatus(events),'Going around');assert(isArmEvent(events[0]));assert(!isArmEvent(events[1]));
+assert.equal(shortStatus([...events,{source:'Safety',input:'pause',output:'Pausing: a hand is in the way'}]),'Pausing: a hand is in the way');
+console.log('Person/fault stops, recovery countdowns, route frames and local status lines checked.');

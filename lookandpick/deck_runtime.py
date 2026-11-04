@@ -239,9 +239,12 @@ class RuntimeSession:
                 'limitations':['Simulation only; schematic playback. No physical safety validation.']}
 
     def close(self):
+        if self._shutdown.is_set():return
         self._shutdown.set()
         inputs=getattr(self,'glasses_inputs',None)
         if inputs:self.stop()
+        recovery=getattr(self.runtime,'recovery',None)
+        if recovery is not None:recovery.close()
         if getattr(self.runtime,'gate',None) is not None:self.runtime.gate.close()
 
 

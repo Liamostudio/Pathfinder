@@ -57,6 +57,7 @@ async function request(action, fields = {}, quiet = false) {
       }
       const reply=await fetch('/api/state');data=await reply.json();
     }
+    if(!data.scene){const reply=await fetch('/api/state',{signal:AbortSignal.timeout(4000)});if(!reply.ok)throw Error('Session unavailable');data=await reply.json();}
     connection(true);
     acceptState(data);
     if (!quiet && ['pick', 'place', 'command'].includes(action)) {
@@ -172,7 +173,7 @@ function renderObjects() {
 }
 
 function renderEvents() {
-  const events = state.events.filter(event => filter === 'all' || (filter === 'models' ? /Muse|SAM|model/i.test(event.source) : ['tools', 'safety','real_arm'].includes(event.source.toLowerCase())));
+  const events = state.events.filter(event => filter === 'all' || (filter === 'models' ? /Muse|SAM|model/i.test(event.source) : ['tools', 'safety','arm','real_arm'].includes(event.source.toLowerCase())));
   const signature = JSON.stringify([events, filter]);
   if (signature === eventSignature) return;
   eventSignature = signature;
@@ -383,7 +384,7 @@ async function stop() {
   demoRunning = false;
   pending=false;$('#runtime-replay')?.remove();
   await request('stop', {}, true);
-  toast('Stop latched. Start a new simulation to reset.');
+  toast(state?.motion_controls?.resume?'Stop latched. Use Carry on or reset to continue.':'Stop latched. Reset locally to continue.');
 }
 
 $('#pick').addEventListener('click', () => request('pick').catch(() => {}));

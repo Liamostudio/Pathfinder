@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/workspaces.css">
   <script type="module" src="/workspaces.js"></script>
   <script type="module" src="/deck-panels.js"></script>
+  <script type="module" src="/motion-view.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#workspace">skip to workspace</a>
@@ -34,7 +35,7 @@
         <button class="nav-key" data-page="timeline">session log</button>
         <button class="nav-key" data-page="real-arm">real arm / read-only</button>
       </nav>
-      <div class="toolbar-actions"><button id="run-demo" class="key"><span aria-hidden="true">▶</span> play demo</button><button id="stop" class="stop-key"><span class="stop-square"></span>stop <kbd>space</kbd></button></div>
+      <div class="toolbar-actions"><button id="run-demo" class="key"><span aria-hidden="true">▶</span> play demo</button><button id="motion-cancel" class="key" disabled>Cancel</button><button id="motion-resume" class="key" disabled>Carry on</button><button id="stop" class="stop-key"><span class="stop-square"></span>stop <kbd>space</kbd></button></div>
     </div>
 
     <main>
@@ -46,12 +47,12 @@
             <div class="stage-panel" id="synthetic-stage-panel">
               <div class="stage-header"><span id="stage-label"><i class="led"></i> synthetic scene</span><div class="view-switch" role="group" aria-label="Scene viewpoint"><button class="active" data-view="perspective" aria-pressed="true">perspective</button><button data-view="top" aria-pressed="false">top view</button></div><span class="mono">cam / 01</span></div>
               <div class="stage-media">
-                <svg id="scene-svg" viewBox="0 0 960 560" role="img" aria-label="Illustrative simulated robot workspace with a cube, mug and drop zone"></svg>
+                <svg id="motion-route" viewBox="0 0 960 560" role="img" aria-label="Planned simulator waypoints" hidden></svg><svg id="scene-svg" viewBox="0 0 960 560" role="img" aria-label="Illustrative simulated robot workspace with a cube, mug and drop zone"></svg>
                 <video id="camera-video" autoplay playsinline muted hidden></video>
                 <video id="recording-video" playsinline controls hidden></video>
                 <div class="stage-corner"><span id="media-mode">SIMULATED WORKSPACE</span><span id="stage-subtitle">illustrative motion · no camera input</span></div>
                 <div class="stage-coordinate mono" id="stage-coordinate">x +0.000 / y +0.000 / z +0.200</div>
-                <div id="stop-overlay" hidden><span>■</span><h3>stop latched.</h3><p>Start a new simulation to reset.</p></div>
+                <div id="stop-overlay" hidden><span>■</span><h3 id="motion-overlay-title">stop latched.</h3><p id="motion-overlay-reason">Start a new simulation to reset.</p></div>
               </div>
               <div class="stage-footer"><span><i class="legend-target"></i> selected target <i class="legend-path"></i> simulated path</span><button id="camera" class="stage-action">use webcam ↗</button><label class="stage-action file-label" for="recording">open recording ↗<input id="recording" type="file" accept="video/*"></label><button id="synthetic" class="stage-action" hidden>return to scene ↗</button></div>
             </div>
@@ -65,11 +66,12 @@
           <aside class="console-column" aria-label="Robot controls">
             <div class="section-heading"><h2><span class="section-no">03</span> safety gate</h2><span id="gate-status" class="status-label">clear</span></div>
             <section class="safety-panel">
+              <div id="motion-stop" class="motion-stop" role="status" hidden><strong id="motion-stop-kind"></strong><p id="motion-stop-reason"></p><p id="motion-recovery" class="micro"></p></div><p id="motion-status" class="motion-status" role="status"></p><p id="motion-control-status" class="micro" role="status"></p><p id="motion-route-label" class="micro"></p>
               <div class="readout-label"><span>allowed speed</span><span class="mono micro">local / simulated</span></div>
               <div class="speed-readout"><span id="speed" class="mono">100</span><span>%</span><span id="speed-caption" class="speed-caption">path clear</span></div>
               <div class="speed-track"><div id="speed-fill"></div><i class="speed-stop-mark"></i></div>
               <div class="range-labels mono"><span>stop</span><span>slow</span><span>full</span></div>
-              <div class="safety-details"><div><span class="caption">hand → selected path</span><strong id="separation" class="mono">clear</strong></div><div><span class="caption">stop threshold</span><strong class="mono">0.15 <small>m</small></strong></div></div>
+              <div class="safety-details"><div><span class="caption">hand → selected path</span><strong id="separation" class="mono">clear</strong></div><div><span class="caption">stop threshold</span><strong class="mono"><span id="motion-stop-distance">0.15</span> <small>m</small></strong></div></div>
               <div class="scenario-label"><span>synthetic hand</span><span class="micro">test the gate</span></div>
               <div class="transport scenarios" role="group" aria-label="Synthetic hand scenario"><button class="active" data-hand="clear" aria-pressed="true">clear</button><button data-hand="approach" aria-pressed="false">approaching</button><button data-hand="near" aria-pressed="false">in path</button></div>
               <p class="micro safety-disclaimer">Checks run before each simulated action. Continuous hand monitoring is not connected.</p>
