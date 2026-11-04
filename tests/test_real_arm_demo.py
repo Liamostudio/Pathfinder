@@ -531,3 +531,16 @@ def test_a_hand_in_scene_hands_alone_is_not_used_and_a_gate_with_positions_is():
     sim_only = deck_state(hand_gate={"state": "clear", "stale_s": 0.05}, scene={"hands": [{"id": "sim", "position": [0, 0, 0], "radius_m": 0.05}]})
     assert parse_state(sim_only, 0.25).ok is False
     assert parse_state(deck_state(), 0.25).hands[0].id == "hand-1"
+
+
+def test_the_default_stop_distance_is_ten_centimetres_from_the_hands_surface_not_its_centre():
+    demo, rig, hands, clock = make()
+    tip = tip_of(START)
+    hands.reading = HandReading(True, (Hand("h", (tip[0] + 0.30, tip[1], tip[2]), 0.18),))     # centre 30 cm, surface 12 cm: slows, does not stop
+    advance(demo, clock, 0.3)
+    assert demo.mode == "sweeping" and 0 < demo.status.scale < 1
+    hands.reading = HandReading(True, (Hand("h", (tip[0] + 0.26, tip[1], tip[2]), 0.18),))     # surface 8 cm: inside 10 cm
+    advance(demo, clock, 0.3)
+    assert demo.mode == "frozen"
+    with pytest.raises(ValueError):
+        DemoConfig(stop_distance_m=0.01)

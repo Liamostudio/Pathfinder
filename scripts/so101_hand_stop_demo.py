@@ -153,6 +153,7 @@ def main(argv=None, *, ask=input) -> None:
     p.add_argument("--continuous", action="store_true", help="keep sweeping until you press q or f (ignores --cycles)")
     p.add_argument("--work-area", type=float, nargs=4, metavar=("X0", "X1", "Y0", "Y1"),
                    help="marker-frame rectangle in metres: any hand inside it freezes the arm, however far from the tip")
+    p.add_argument("--stop-cm", type=float, default=10.0, help="freeze when a hand's surface is this close to the tip path (default 10, at least 3)")
     p.add_argument("--speed", type=float, default=0.3, help="fraction of the commissioned 10 deg/s (default 0.3, at most 1.0)")
     p.add_argument("--torque-limit", type=int, default=TORQUE_LIMIT, choices=range(100, 1001), metavar="100-1000")
     p.add_argument("--status-port", type=int, default=0, help="serve the demo's gate state on this loopback port for Deck's hand-gate panel (0 = off)")
@@ -162,7 +163,7 @@ def main(argv=None, *, ask=input) -> None:
     p.add_argument("--hold-only", action="store_true", help="torque on, goals = present for ~10 s, nothing moves; prints the supply voltage")
     a = p.parse_args(argv)
     try:
-        config = DemoConfig(amplitude_m=a.amplitude_cm / 100, cycles=a.cycles, speed_fraction=a.speed, continuous=a.continuous,
+        config = DemoConfig(amplitude_m=a.amplitude_cm / 100, cycles=a.cycles, speed_fraction=a.speed, continuous=a.continuous, stop_distance_m=a.stop_cm / 100,
                             work_area=tuple(a.work_area) if a.work_area else None)
     except ValueError as exc:
         raise SystemExit(f"Refused: {exc}") from None

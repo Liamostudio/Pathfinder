@@ -165,7 +165,7 @@ class DemoConfig:
     stall_reads: int = 4
     stall_progress_deg: float = 0.5
     volt_every: int = 4
-    stop_distance_m: float = 0.15        # the real arm's distances (safety.py); the simulated arm's 0.10 is not used here
+    stop_distance_m: float = 0.10        # gap from the hand's surface (its centre minus its radius) to the tip path; Liam chose 10 cm on the bench (safety.py's real-arm default is 15)
     slow_distance_m: float = 0.50
 
     def __post_init__(self):
@@ -177,6 +177,8 @@ class DemoConfig:
             if len(self.work_area) != 4 or not all(math.isfinite(v) for v in self.work_area) \
                     or not self.work_area[0] < self.work_area[1] or not self.work_area[2] < self.work_area[3]:
                 raise ValueError("work area must be x0 x1 y0 y1 in metres with x0 < x1 and y0 < y1")
+        if not 0.03 <= self.stop_distance_m < self.slow_distance_m:
+            raise ValueError("stop distance must be at least 3 cm and below the slow distance")
         if not 1 <= self.cycles <= 10 or not 0.02 <= self.tick_s <= 0.1 or not 0 < self.max_deg_s <= 10:
             raise ValueError("cycles 1..10, tick 20..100 ms, speed ceiling at most 10 deg/s")
 

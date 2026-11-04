@@ -6,7 +6,7 @@ Status when written: the script was built and tested with a fake bus and fake ha
 
 ## What it does
 - Sweeps ONE joint (shoulder pan) about 3 to 4 cm either side of where the session starts, at most 3 deg/s (commissioned ceiling is 10).
-- Hand near the tip path: slows (50 cm to 15 cm), then at 15 cm FREEZES: every goal is set to where the arm is, torque stays on, so it holds still instead of going limp.
+- Hand near the tip path: slows (50 cm to 10 cm), then at 10 cm FREEZES (`--stop-cm`; measured from the hand's surface, centre minus its 14 to 20 cm radius): every goal is set to where the arm is, torque stays on, so it holds still instead of going limp.
 - Resumes after the way has been clear for 1 s. Held more than 30 s: gives up and folds once the hand has gone.
 - Folds back to the pose the session started in, slowly (at most 5 deg/s), hand-checked every step, stopping 2 degrees inside each calibrated end stop. Torque is released only when folded (the arm then settles the last few degrees onto its rest).
 - Cannot see (Deck down, answer older than 0.25 s, gate stale, malformed data): freezes, does NOT fold. Press `f` once it can see again, or cut the supply.
@@ -15,7 +15,7 @@ Status when written: the script was built and tested with a fake bus and fake ha
 - Keys: SPACE stop, `r` resume, `f` fold now, `q` fold then exit, `x` release torque (arm goes limp: support it). Ctrl-C = SPACE; twice within 3 s releases.
 
 ## Honest limits
-- The hand check depends on loopback HTTP from the live Deck (it owns both cameras; a second process cannot open them). It fails closed, but it is not an in-process gate like the simulated arm's. The 15 cm stop distance is still a placeholder, not measured on the bench.
+- The hand check depends on loopback HTTP from the live Deck (it owns both cameras; a second process cannot open them). It fails closed, but it is not an in-process gate like the simulated arm's. The 10 cm stop distance (chosen on the bench, `--stop-cm`) is not a measured safe distance.
 - The fold is joint-space and hand-checked against a straight tip line, not a collision-checked path. It assumes the start pose is the folded rest pose.
 - The sweep is refused (before any torque) if the start pose would put either end outside the pan range or the commissioned workspace box. If so, move the arm by hand to a pose nearer the middle of the pan range and try again.
 
