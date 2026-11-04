@@ -2,7 +2,7 @@
 
 **Milestone:** Prep (in progress) · **State:** On track · **Last updated:** 2026-11-04 UK · **Repo:** https://github.com/Liamostudio/Pathfinder (public)
 
-Hackathon window: 26 Oct – 4 Nov 2026 (submit by 9pm ET Wed 4 Nov = 2am UK Thu 5 Nov). Features freeze midday Wed 4 Nov.
+Hackathon window: 26 Oct – 4 Nov 2026 (submit by 9pm ET Wed 4 Nov = 2am UK Thu 5 Nov). Features freeze 2pm UK Wed 4 Nov (moved from midday by Liam on 4 Nov).
 
 ## Milestones
 
