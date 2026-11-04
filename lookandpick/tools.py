@@ -4,6 +4,7 @@ A model (Muse Spark, Glimmer) only ever calls these. Every motion goes through t
 """
 from __future__ import annotations
 
+import math
 import threading
 import time
 from functools import wraps
@@ -42,6 +43,8 @@ class Tools:
         self._block_reason: str | None = None
         self._action_lock = threading.Lock()
         self._cancelled = threading.Event()     # a person's "cancel": ends the current instruction, latches nothing
+        self.holds_through_stops = False        # True under the Runtime: a stop mid-action HOLDS it (a person says 'carry on' or 'cancel'; a fault recovers)
+        self._held_origin: dict[str, Vec3] = {}  # where each held object was picked up, so Rest can put it back
         self.waits_for_hands = True             # False only for the scripted fake Deck backend, which has no live watchdog to wait for
 
     def announce(self, text: str) -> None:
@@ -82,14 +85,28 @@ class Tools:
         it ends when the hand leaves, a person says stop or cancel, or the safety layer latches (a fault). Every other zero speed
         (a latch, bad geometry) is a refusal. Says so once on pausing, now and then while waiting, and once on resuming."""
         waiting = False
+        stop_noted = False
         reminded = 0.0
         hands = [Hand(**h) for h in self.world.snapshot()['hands']]
         while True:
-            if self.safety.stopped:
-                return 0.0
             if self._cancelled.is_set():
                 self._block_reason = "cancelled"
                 return 0.0
+            if self.safety.stopped or self.safety.holding:
+                if not self.holds_through_stops:
+                    return 0.0
+                if not stop_noted:
+                    stop_noted = True
+                    if self.safety.stopped and self.safety.stop_kind == "person":
+                        self.announce("Stopped. Say carry on to continue, or cancel")
+                    else:
+                        self.announce("Paused: recovering from a fault")
+                self._cancelled.wait(self.poll_s)
+                continue
+            if stop_noted:
+                stop_noted = False
+                hands = self._hands_now()
+                self.announce("Carrying on")
             scale = self.safety.allowed_speed(hands, path)
             if scale > 0.0:
                 if waiting:
@@ -107,35 +124,70 @@ class Tools:
             self._cancelled.wait(self.poll_s)
             hands = self._hands_now()
 
+    def _arm_timed_out(self) -> bool:
+        """The arm says its last move made no progress (a real fault, unlike waiting for a hand)."""
+        state = getattr(self.arm, "state", None)
+        try:
+            return callable(state) and state().get("reason") == "command timed out"
+        except Exception:
+            return False
+
     def _move(self, target: Vec3) -> bool:
-        """Check safety before commanding; return True only after acknowledged completion. A hand in the way is waited out."""
+        return self._segment(target, lambda scale: self.arm.move_to(target, scale))
+
+    def _segment(self, target: Vec3, command: Callable[[float], object]) -> bool:
+        """Check safety before commanding; return True only after acknowledged completion. A hand in the way is waited out; under the Runtime
+        a stop mid-move is waited out too (a person's 'carry on', or an automatic recovery from a fault), then the move is issued again from where
+        the arm stopped. A move that makes no progress is a fault stop."""
         self._refresh()
-        path = (self.arm.position, target)
-        if self.safety.stopped:
+        if self.safety.stopped and not self.holds_through_stops:
             return False
-        if self.zones is not None:
-            reason = self.zones.violation(*path)
-            if reason:
-                self._block_reason = reason
+        while True:
+            path = (self.arm.position, target)
+            if self.zones is not None:
+                reason = self.zones.violation(*path)
+                if reason:
+                    self._block_reason = reason
+                    return False
+            scale = self._wait_for_clear(path)
+            if scale <= 0.0 or (self.safety.stopped and not self.holds_through_stops):
                 return False
-        scale = self._wait_for_clear(path)
-        if scale <= 0.0 or self.safety.stopped:
+            epoch = self.safety.stop_count
+            try:
+                completed = command(scale) is True
+            except TimeoutError:
+                completed = False
+                self.safety.stop("fault", "a move made no progress")
+                self.arm.halt()
+            self.world.update(arm_position=self.arm.position)
+            if completed:
+                return True
+            if self._cancelled.is_set():
+                self._block_reason = "cancelled"
+                return False
+            if not self.safety.stopped and not self.safety.holding and self._arm_timed_out():
+                self.safety.stop("fault", "a move made no progress")
+                self.arm.halt()
+            if self.holds_through_stops and (self.safety.stop_count != epoch or self.safety.stopped or self.safety.holding):
+                continue                                  # interrupted by a stop: wait it out, then carry on from here
             return False
-        completed = self.arm.move_to(target, scale) is True
-        self.world.update(arm_position=self.arm.position)
-        if not completed and self._cancelled.is_set():
-            self._block_reason = "cancelled"
-        return completed
 
     def _grip(self, closed: bool) -> bool:
         self._refresh()
-        if self.safety.stopped:
+        if self.safety.stopped and not self.holds_through_stops:
             return False
-        if self._wait_for_clear((self.arm.position, self.arm.position)) <= 0:
+        while True:
+            if self._wait_for_clear((self.arm.position, self.arm.position)) <= 0:
+                return False
+            epoch = self.safety.stop_count
+            if self.safety.stopped and not self.holds_through_stops:
+                return False
+            if self.arm.grip(closed) is True:
+                return True
+            if self.holds_through_stops and not self._cancelled.is_set() and (
+                    self.safety.stop_count != epoch or self.safety.stopped or self.safety.holding):
+                continue
             return False
-        if self.safety.stopped:
-            return False
-        return self.arm.grip(closed) is True
 
     def _aim_gripper(self, yaw_deg: float | None) -> None:
         """Hand a measured grasp yaw to an arm that can take one; always sets it so a stale yaw never carries to the next pick.
@@ -170,6 +222,7 @@ class Tools:
         if not (self._move(above) and self._move(target) and self._grip(True)):
             return f"blocked: {self._block_reason or 'safety gate or arm refused the action'}"
         self.world.set_held(TrackedObject(**obj), True, self.arm.position)
+        self._held_origin[obj['id']] = (float(target[0]), float(target[1]), float(target[2]))
         if not self._move(above):
             return f"blocked: holding {obj['label']}; retreat incomplete"
         return f"picked {obj['label']}"
@@ -191,14 +244,52 @@ class Tools:
         if not (self._move(above) and self._move(loc) and self._grip(False)):
             return f"blocked: {self._block_reason or 'safety gate or arm refused the action'}"
         self.world.set_held(TrackedObject(**obj), False, self.arm.position)
+        self._held_origin.pop(obj['id'], None)
         if not self._move(above):
             return f"blocked: released {obj['label']}; retreat incomplete"
         return f"placed {obj['label']}"
 
     def stop(self) -> str:
-        self.safety.stop()
+        self.safety.stop("person", "STOP requested")
         self.arm.halt()
         return "stopped"
+
+    def go_rest(self) -> str:
+        """Fold the arm back to its Rest pose. First puts any held object down where it was picked up, if that spot is clear; otherwise goes to
+        Rest holding it and says so. Checked like any other move (hands, no-go cubes), so it can pause and carry on. Never runs while a person's
+        STOP is latched. Not a model tool: the runtime calls it after cancel, a reset, or an instruction it could not finish."""
+        if self.safety.stopped:
+            return "blocked: stopped"
+        rest = getattr(self.arm, "rest", None)
+        if not callable(rest):
+            return "blocked: this arm has no rest pose"
+        self._block_reason = None
+        self._refresh()
+        held = next((o for o in self.world.snapshot()['objects'] if o['held']), None)
+        if held is not None:
+            origin = self._held_origin.get(held['id'])
+            if origin is not None and self._spot_is_clear(held['id'], origin):
+                above = (origin[0], origin[1], origin[2] + HOVER_M)
+                if not (self._move(above) and self._move(origin) and self._grip(False)):
+                    return f"blocked: {self._block_reason or 'could not put the ' + held['label'] + ' down'}"
+                self.world.set_held(TrackedObject(**held), False, self.arm.position)
+                self._held_origin.pop(held['id'], None)
+                if not self._move(above):
+                    return f"blocked: {self._block_reason or 'retreat incomplete'}"
+            else:
+                self.announce(f"Going to rest holding the {held['label']}")
+        self.announce("Heading back to rest")
+        target = tuple(getattr(self.arm, "rest_position", None) or self.arm.position)
+        if not self._segment(target, lambda scale: rest()):
+            return f"blocked: {self._block_reason or 'could not reach rest'}"
+        return "at rest"
+
+    def _spot_is_clear(self, held_id: str, spot: Vec3, clearance_m: float = 0.05) -> bool:
+        """No other object within `clearance_m` (across the table) of where the held one was picked up, and no no-go cube in the way."""
+        for o in self.world.snapshot()['objects']:
+            if o['id'] != held_id and math.dist(o['position'][:2], spot[:2]) < clearance_m:
+                return False
+        return self.zones is None or self.zones.violation(self.arm.position, spot) is None
 
     def say(self, text: str) -> None:
         self._say(text)

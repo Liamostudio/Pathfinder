@@ -20,7 +20,11 @@ def test_stop_interrupts_worker_and_prevents_more_model_calls():
         assert arm.entered.wait(1)
         before=len(model.requests); t=time.monotonic(); session.stop()
         assert time.monotonic()-t<.1
-        for _ in range(100):
+        time.sleep(.4)
+        assert session.job(key)['status']=='running'          # a STOP mid-action HOLDS the instruction: 'carry on' resumes it, 'cancel' ends it
+        assert session.state()['stopped']
+        session.cancel()
+        for _ in range(200):
             if session.job(key)['status']!='running': break
             time.sleep(.01)
         assert session.job(key)['status']=='stopped'

@@ -38,12 +38,19 @@ class Session:
         if action == 'stop':
             self.sim.halt()
             return {'result':'stopped', 'state': self.state()}
+        if action == 'resume':
+            self.sim.resume()
+            return {'result':'resumed'}
         if action == 'cancel':
             self.sim.cancel()
             return {'result':'cancelled'}
         if action == 'hand':
             self.sim.set_hand(payload.get('position'))
             return {'result':'hand updated'}
+        if action=='nudge':return {'result':self.sim.nudge(payload.get('name'),payload.get('dx'),payload.get('dy'))}
+        if action=='hide':return {'result':self.sim.hide(payload.get('name'),payload.get('hidden',True))}
+        if action=='grip_miss_once':return {'result':self.sim.grip_miss_once()}
+        if action=='reachable':return {'result':self.sim.reachable(payload.get('position'))}
         if action == 'camera':
             if not self.cameras:
                 raise ValueError('Rendering disabled')
@@ -55,7 +62,7 @@ class Session:
         if action == 'speed':
             self.sim.set_speed_scale(payload.get('scale'))
             return {'result':'speed updated'}
-        if action not in ('pick','place','move','joints','grip','reset'):
+        if action not in ('pick','place','move','joints','grip','reset','rest'):
             raise ValueError('Unknown action')
         with self.lock:
             if self.closing:
@@ -82,6 +89,8 @@ class Session:
                 result = self.sim.move_to(tuple(payload['position']), payload.get('speed_scale',1.0))
             elif action == 'joints':
                 result = self.sim.move_joints(payload['positions'])
+            elif action == 'rest':
+                result = self.sim.rest(payload.get('speed_scale',1.0))
             elif action == 'grip':
                 result = self.sim.grip(payload['closed'])
             else:

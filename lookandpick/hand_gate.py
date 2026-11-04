@@ -186,7 +186,7 @@ class HandGate:
         return [CameraSpec("main", self.camera, self.make_detector, self.calibration)] + self.extra_cameras
 
     # -- life cycle --------------------------------------------------------------------------------------------------
-    def start(self) -> None:
+    def start(self, clear_latch: bool = False) -> None:
         """Warm up every camera first (a webcam can take seconds to deliver and the detector's first inference is slow, and neither may trip the
         short watchdog), then run. Raises RuntimeError if ANY camera never delivers: the gate is not running and moves are refused."""
         with self._lock:
@@ -207,6 +207,8 @@ class HandGate:
                 detector = spec.make_detector()
                 detector.detect(latest[1], int(time.monotonic() * 1000))      # first inference is slow: pay for it before the clock starts
                 ready.append((spec, detector))
+            if clear_latch:
+                self.safety.reset()               # only now that every camera has delivered: a failed rebuild stays latched (and fails closed)
             self._build(ready)
 
     def _build(self, ready) -> None:
@@ -235,8 +237,7 @@ class HandGate:
         """Explicit operator action after a stop: a fresh monitor and detectors, and no motion until a fresh observation arrives."""
         with self._lock:
             self._shutdown_loop()
-            self.safety.reset()
-            self.start()
+            self.start(clear_latch=True)
 
     def _shutdown_loop(self) -> None:
         loops, self.loops, self.loop, self.monitor, self.fusion = self.loops, [], None, None, None

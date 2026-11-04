@@ -41,7 +41,7 @@ class SimulationClient:
             job = json.load(response)
         if 'job_id' not in job:
             return job
-        deadline = time.monotonic() + (self.move_timeout if action in ('move', 'joints') else self.command_timeout)
+        deadline = time.monotonic() + (self.move_timeout if action in ('move', 'joints', 'rest') else self.command_timeout)
         try:
             while time.monotonic() < deadline:
                 status = self._get('/api/jobs/'+job['job_id'])
@@ -62,11 +62,34 @@ class SimulationClient:
         result = self.action('grip',closed=closed)
         return result.get('status') == 'completed' and result.get('result') is True
 
+    @property
+    def rest_position(self):
+        return tuple(self.state()['rest_position'])
+
+    def rest(self, speed_scale=1.0):
+        result=self.action('rest',speed_scale=speed_scale)
+        return result.get('status')=='completed' and result.get('result') is True
+
+    def reachable(self, position):
+        return self.action('reachable',position=list(position)).get('result') is True
+
+    def nudge(self, name, dx, dy):
+        return self.action('nudge',name=name,dx=dx,dy=dy).get('result') is True
+
+    def hide(self, name, hidden=True):
+        return self.action('hide',name=name,hidden=hidden).get('result') is True
+
+    def grip_miss_once(self):
+        return self.action('grip_miss_once').get('result') is True
+
     def halt(self):
         self.action('stop')
 
     def cancel(self):
         self.action('cancel')
+
+    def resume(self):
+        self.action('resume')
 
     def set_grasp_yaw(self, yaw_deg):
         self.action('grasp_yaw',yaw=yaw_deg)

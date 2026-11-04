@@ -3,6 +3,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 import json
 import math
+import re
 from pathlib import Path
 import sys
 import subprocess
@@ -60,8 +61,9 @@ class ScriptedModel:
 
 
 class RuntimeSession:
-    def __init__(self, runtime, *, hand_gate=None):
+    def __init__(self, runtime, *, hand_gate=None, motion_status=None):
         self.runtime = runtime; self.arm = runtime.arm; self.safety = runtime.safety
+        self._motion_status = motion_status; self._person_stop = False
         self.instance_id = uuid4().hex; self.started = time.monotonic(); self.stop_generation = 0
         self._lock = threading.RLock(); self._revision = 1; self.jobs = {}; self.active = None
         self.selected = None; self.hand_mode = 'clear'; self._hand_gate = hand_gate or (runtime.hand_gate_status if getattr(runtime,'gate',None) is not None else None)
@@ -87,10 +89,21 @@ class RuntimeSession:
                 'speed_scale':0 if stopped else raw.get('speed_scale',1.),'separation_m':None,
                 'uptime_s':time.monotonic()-self.started,'events':self.timeline(),'busy':self.active is not None,
                 'active_job':self.active,'joints':raw.get('joints',{}),'model':self.runtime.model.name}
+        data['stop_distance_m']=self.safety.stop_distance_m
+        data['motion_controls']={'resume':callable(getattr(self.runtime,'resume',None))}
+        provider=self._motion_status or getattr(self.runtime,'motion_status',None)
+        try:
+            motion=provider() if callable(provider) else raw
+            # Copy only the agreed display fields; a feed never overrides command/safety state.
+            for key in ('stop','route'):
+                if isinstance(motion.get(key),dict):data[key]=json.loads(json.dumps(motion[key],allow_nan=False))
+        except (ValueError,TypeError,AttributeError,OSError,RuntimeError):pass
+        if stopped and 'stop' not in data and self._person_stop:
+            data['stop']={'kind':'person','reason':'STOP requested by you','recovering_in_s':None,'resets_left':0}
         gate = self.hand_gate(data); data['hand_gate'] = gate; data['separation_m'] = gate.get('nearest_m') if gate else None
         with self._lock:
             frame = {'t':round(time.monotonic()-self._record_start,3),'scene':scene,'hand_gate':gate,'stopped':stopped,
-                     'joints':data['joints'],'speed_scale':data['speed_scale']}
+                     'joints':data['joints'],'speed_scale':data['speed_scale'],**{k:data[k] for k in ('stop','route') if k in data}}
             if not self.frames or frame['t']-self.frames[-1]['t']>=.04: self.frames=(self.frames+[frame])[-18000:]
         return data
 
@@ -104,8 +117,10 @@ class RuntimeSession:
 
     def submit(self, text):
         if not isinstance(text,str) or not text.strip() or len(text)>1000: raise ValueError('Enter 1–1,000 characters')
-        from .models.orchestrator import STOP_WORDS
+        from .models.orchestrator import CANCEL_WORDS, STOP_WORDS
         if STOP_WORDS.match(text): self.stop(); return {'status':'stopped'}
+        if CANCEL_WORDS.match(text): self.cancel(); return {'status':'cancelled'}
+        if re.match(r'^\s*(carry\s+on|resume)\b',text,re.I):self.resume();return {'status':'resumed'}
         with self._lock:
             if self.active: raise ValueError('A command is already running; STOP is always available')
             if self.safety.stopped: raise ValueError('Stop is latched; reset the simulation first')
@@ -162,6 +177,7 @@ class RuntimeSession:
 
     def stop(self):
         # No action/command lock: must interrupt a command or an in-flight model request.
+        self._person_stop=True
         self.safety.stop(); self.stop_generation += 1
         inputs=getattr(self,'glasses_inputs',None)
         if inputs:inputs.stop_all()
@@ -173,13 +189,32 @@ class RuntimeSession:
             self.runtime.log.record('Safety','stop()','Stop latched locally; no model call',0,status='blocked')
             self._revision+=1
 
+    def resume(self):
+        """Local runtime control, independent of the command reservation and any model."""
+        resume=getattr(self.runtime,'resume',None)
+        if not callable(resume):raise ValueError('Carry on is waiting for runtime recovery support')
+        result=resume()
+        if result is False:raise ValueError('Runtime refused Carry on; check the safety status')
+        self._person_stop=False;self._revision+=1
+        return result
+
+    def cancel(self):
+        """'Cancel' / 'never mind': ends the running instruction, latches nothing. Like stop, it never waits behind the running command."""
+        self.runtime.log.record('Safety','cancel','Instruction cancelled locally; no model call',0)
+        self._revision+=1
+        return self.runtime.cancel()
+
     def action(self,payload):
         name=payload.get('action')
         if name=='stop': self.stop()
         elif name=='reset':
+            if self.active and self.runtime.tools._action_lock.locked():      # an instruction waiting INSIDE an arm action (a stop, a hand): the reset ends it (and ends at Rest)
+                self.runtime.cancel();deadline=time.monotonic()+5
+                while self.active and time.monotonic()<deadline:time.sleep(.05)
             with self._lock:
                 if self.active: raise ValueError('Wait for the interrupted command to finish before reset')
                 self.runtime.reset(); self.frames=[]; self._record_start=time.monotonic(); self._revision+=1
+                self._person_stop=False
         elif name=='select':
             if payload.get('id') not in {o['id'] for o in self.runtime.tools.get_scene()['objects']}: raise ValueError('Unknown object')
             self.selected=payload['id']; self._revision+=1

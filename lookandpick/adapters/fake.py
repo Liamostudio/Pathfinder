@@ -61,6 +61,24 @@ class SimArm:
             self.log.append(("grip", closed))
             return True
 
+    def resume(self) -> None:
+        with self._lock:
+            self.halted = False
+            self.speed_scale = 1.0
+            self.log.append(("resume", None))
+
+    # Rest: a fixed fold-back position for the fake arm (the simulator has its own joint-space Rest).
+    rest_position: Vec3 = (0.0, -0.12, 0.2)
+
+    def rest(self) -> bool:
+        with self._lock:
+            if self.halted or self.speed_scale <= 0.0:
+                self.log.append(("blocked_rest", None))
+                return False
+            self.position = self.rest_position
+            self.log.append(("rest", None))
+            return True
+
     def cancel(self) -> None:
         with self._lock:
             self.log.append(("cancel", None))

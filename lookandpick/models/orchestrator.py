@@ -48,6 +48,8 @@ TOOL_SCHEMAS = [
 
 STOP_WORDS = re.compile(r"^\W*(stop|halt|freeze|emergency stop|abort)\b", re.IGNORECASE)
 # "cancel" ends the current instruction and latches nothing; caught locally, like the stop word, with no model call.
+# "carry on" / "resume" clears a PERSON'S stop and picks the interrupted instruction up where it stopped; handled by the Runtime, not the model.
+CARRY_ON_WORDS = re.compile(r"^\W*(carry on|resume)\b", re.IGNORECASE)
 CANCEL_WORDS = re.compile(r"^\W*(cancel|never ?mind|forget it)\b", re.IGNORECASE)
 
 

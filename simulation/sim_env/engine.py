@@ -14,6 +14,7 @@ from lookandpick.safety import Safety, point_segment_distance, valid_position
 from lookandpick.tools import Tools
 from lookandpick.world import Hand, TrackedObject, WorldState
 from .model import JOINTS, OBJECTS, PROPS, ELONGATED, ARM_BASE_OFFSET, build_model
+from .rest_pose import rest_joint_targets
 
 
 class Simulation:
@@ -37,6 +38,13 @@ class Simulation:
         self.qids = self.model.jnt_qposadr[self.jids]
         self.dofs = self.model.jnt_dofadr[self.jids]
         self.limits = self.model.jnt_range[self.jids].copy()
+        self.rest_targets = rest_joint_targets(self.limits)
+        rest_probe=mujoco.MjData(self.model);rest_probe.qpos[self.qids]=self.rest_targets
+        mujoco.mj_forward(self.model,rest_probe)
+        self._rest_position=tuple(float(x) for x in rest_probe.site('tcp').xpos)
+        self.hidden_objects=set();self.scene_revision=0
+        self.object_geoms={name:np.flatnonzero(self.model.geom_bodyid==self.model.body(name).id) for name in self.specs}
+        self.original_geom_groups=self.model.geom_group.copy()
         self.tcp = self.model.site('tcp').id
         self.robot_bodies = [self.model.body(n).id for n in
                              ('shoulder_link', 'upper_arm_link', 'lower_arm_link', 'wrist_link', 'gripper_link', 'gripper_frame_link')]
@@ -48,6 +56,7 @@ class Simulation:
         self.speed_scale = 1.0
         self.effective_scale = 1.0
         self.target = None
+        self._cancel_generation=0
         self._command_scale = 1.0
         self.reason = 'ready'
         self.events = []
@@ -69,7 +78,7 @@ class Simulation:
     def objects(self):
         with self.lock:
             return [TrackedObject(n, label, tuple(float(x) for x in self.data.body(n).xpos), self.held == n)
-                    for n, (label, _, _) in self.specs.items()]
+                    for n, (label, _, _) in self.specs.items() if n not in self.hidden_objects]
 
     def hands(self):
         with self.lock:
@@ -99,6 +108,7 @@ class Simulation:
                 self.reason = 'ready'
                 self.trace = []
                 self.faults.clear()
+                self.hidden_objects.clear();self.model.geom_group[:]=self.original_geom_groups;self.scene_revision+=1
                 self._hand_visible(False)
                 mujoco.mj_forward(self.model, self.data)
                 self.event('Scene reset · simulation only')
@@ -109,15 +119,28 @@ class Simulation:
         # No command lock: this must interrupt a blocking move immediately.
         self.safety.stop()
         with self.lock:
+            self._cancel_generation+=1
             self.halted = True
             self.target = None
             self.speed_scale = self.effective_scale = 0
             self.reason = 'stop latched; reset required'
             self.event(self.reason)
 
+    def resume(self):
+        """Clear the stop latch WITHOUT resetting the scene (positions, a held object and the arm stay as they are): a person's 'carry on', or an
+        automatic recovery from a fault. The hand watchdog sets the speed again within a tick."""
+        with self.lock:
+            self.halted = False
+            self.safety.reset()
+            self.target = None
+            self.speed_scale = self.effective_scale = 1.0
+            self.reason = 'ready'
+            self.event('Stop cleared · resuming')
+
     def cancel(self):
         """End the current move WITHOUT latching: the target is dropped and the arm holds where it is. A person's 'cancel', never a stop."""
         with self.lock:
+            self._cancel_generation+=1
             self.target = None
             if not self.halted:
                 self.reason = 'cancelled'
@@ -323,7 +346,7 @@ class Simulation:
                     best = norm
         raise ValueError('No collision-free IK solution within joint limits')
 
-    def _move_joints(self, values, scale=1.0, timeout=20):
+    def _move_joints(self, values, scale=1.0, timeout=20, *, _owns_lock=False):
         if 'command_refused' in self.faults:
             self.reason = 'injected command refusal'
             return False
@@ -332,7 +355,7 @@ class Simulation:
         values = np.asarray(values, dtype=float)
         if values.shape != (6,) or not np.all(np.isfinite(values)) or np.any(values < self.limits[:, 0]) or np.any(values > self.limits[:, 1]):
             raise ValueError('Joint targets must be six finite radians within URDF limits')
-        if not self.command_lock.acquire(blocking=False):
+        if not _owns_lock and not self.command_lock.acquire(blocking=False):
             return False
         try:
             with self.lock:
@@ -368,7 +391,7 @@ class Simulation:
             return False
         finally:
             self._command_scale = 1.0
-            self.command_lock.release()
+            if not _owns_lock:self.command_lock.release()
 
     def move_to(self, target, speed_scale):
         try:
@@ -381,6 +404,102 @@ class Simulation:
 
     def move_joints(self, values):
         return self._move_joints(values)
+
+    @property
+    def rest_position(self):
+        return self._rest_position
+
+    def rest(self, speed_scale=1.0):
+        """Fold via the normal collision/hand/STOP/cancel-checked joint servo.
+        Scene objects and the current gripper aperture/attachment are preserved.
+        The controller is responsible for its manual no-go check before calling.
+        """
+        if not self.command_lock.acquire(blocking=False):return False
+        try:
+            with self.lock:
+                if self.halted or self.safety.stopped:return False
+                generation=self._cancel_generation;start=self.data.qpos[self.qids].copy()
+                targets=self.rest_targets.copy();targets[5]=start[5]
+            route=self._rest_route(start,targets)
+            if route is None:
+                self.reason='no collision-free joint route to Rest';return False
+            for joints in route:
+                with self.lock:
+                    if generation!=self._cancel_generation:return False
+                if not self._move_joints(joints,speed_scale,_owns_lock=True):return False
+            return True
+        finally:self.command_lock.release()
+
+    def _rest_route(self, start, target):
+        """Preflight a straight fold, then a bounded one-joint-at-a-time fold.
+        Direct interpolation can sweep the fingers through the table even when
+        both endpoints are clear. Actual servo steps still check collisions.
+        """
+        with self.lock:qpos=self.data.qpos.copy()
+        probe=mujoco.MjData(self.model);probe.qpos[:]=qpos
+        def clear(a,b):
+            steps=max(1,math.ceil(float(np.max(np.abs(b-a)))/.035))
+            extent=float(np.max(np.abs(b-a)))
+            for t in np.linspace(0,1,steps+1):
+                # Match the servo: each joint has the same velocity limit and
+                # stops independently, rather than all arriving simultaneously.
+                probe.qpos[self.qids]=a+np.clip(b-a,-extent*t,extent*t);mujoco.mj_forward(self.model,probe)
+                if self._collision(probe):return False
+            return True
+        if clear(start,target):return [target]
+        failed=set()
+        def search(mask):
+            if mask==31:return []
+            if mask in failed:return None
+            current=start.copy()
+            for j in range(5):
+                if mask&(1<<j):current[j]=target[j]
+            for j in (0,1,2,4,3):
+                if mask&(1<<j):continue
+                candidate=current.copy();candidate[j]=target[j]
+                if not clear(current,candidate):continue
+                rest=search(mask|(1<<j))
+                if rest is not None:return [candidate]+rest
+            failed.add(mask);return None
+        return search(0)
+
+    def reachable(self, position):
+        """Read-only endpoint IK query for the controller's waypoint planner."""
+        try:self.solve_ik(position);return True
+        except ValueError:return False
+
+    def nudge(self, name, dx, dy):
+        """Test hook: shift one free object by at most 10 cm per XY axis."""
+        if name not in self.specs:raise ValueError('Unknown simulation object')
+        if any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or abs(v)>.1 for v in (dx,dy)):
+            raise ValueError('Nudge offsets must be finite metres within +/-0.10')
+        with self.lock:
+            if self.held==name:return False
+            joint=self.model.joint(name+'_free');addr=joint.qposadr[0];dof=joint.dofadr[0]
+            target=self.data.qpos[addr:addr+2]+[dx,dy]
+            if any(abs(v)>.6 for v in target):raise ValueError('Nudged object would leave the test table bounds')
+            self.data.qpos[addr:addr+2]=target;self.data.qvel[dof:dof+6]=0
+            mujoco.mj_forward(self.model,self.data);self.scene_revision+=1
+            self.event(f'Test hook: nudged {name} by {dx:.3f}, {dy:.3f} m')
+            return True
+
+    def hide(self, name, hidden=True):
+        """Test hook: hide tracking/rendering; leave physical contacts intact."""
+        if name not in self.specs:raise ValueError('Unknown simulation object')
+        if type(hidden) is not bool:raise ValueError('hidden must be a boolean')
+        with self.lock:
+            if (name in self.hidden_objects)==hidden:return True
+            if hidden:self.hidden_objects.add(name)
+            else:self.hidden_objects.discard(name)
+            ids=self.object_geoms[name]
+            self.model.geom_group[ids]=5 if hidden else self.original_geom_groups[ids]
+            self.scene_revision+=1;self.event(f'Test hook: {"hid" if hidden else "revealed"} {name}')
+            return True
+
+    def grip_miss_once(self):
+        with self.lock:
+            self.faults.add('grip_miss_once');self.event('Test hook: next empty-gripper close will miss')
+        return True
 
     def grip(self, closed):
         if not isinstance(closed, bool):
@@ -397,6 +516,9 @@ class Simulation:
                 return False
             self.gripping = closed
             if closed:
+                if self.held is None and 'grip_miss_once' in self.faults:
+                    self.faults.discard('grip_miss_once');self.reason='injected first-grip miss; no object attached'
+                    self.event(self.reason);return False
                 near = sorted((math.dist(o.position, self.position), o.id) for o in self.objects())
                 miss = self._jaws_across(near[0][1]) if near and near[0][0] < 0.035 else None
                 if miss:
@@ -423,6 +545,8 @@ class Simulation:
                               'hands': [vars(h) for h in self.hands()]},
                     'stopped': self.halted or self.safety.stopped, 'busy': self.command_lock.locked(),
                     'gripping': self.gripping, 'held': self.held, 'speed_scale': self.effective_scale,
+                    'rest_position':self.rest_position,'scene_revision':self.scene_revision,
+                    'test_hooks':{'hidden_objects':sorted(self.hidden_objects),'grip_miss_once':'grip_miss_once' in self.faults},
                     'reason': self.reason, 'events': list(self.events)}
 
     def close(self):

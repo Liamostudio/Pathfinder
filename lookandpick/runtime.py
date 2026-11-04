@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+import threading
 from pathlib import Path
 
 from .models.base import ChatModel
 from .models.calllog import CallLog
 from .models.meta import MetaClient
-from .models.orchestrator import STOP_WORDS, Orchestrator, RunResult
+from .models.orchestrator import CANCEL_WORDS, CARRY_ON_WORDS, STOP_WORDS, Orchestrator, RunResult
+from .recovery import RecoverySupervisor
 from .safety import Safety
 from .scene import SceneUnavailable
 from .tools import Tools
@@ -43,6 +45,14 @@ class Runtime:
         self.tools = Tools(WorldState(), self.tracker, self.arm, self.safety, say=self._speak, announce=self._announce)
         self.model = model
         self.orchestrator = Orchestrator(model, self.tools, log=self.log)
+        self.tools.holds_through_stops = True           # a stop mid-action holds it: 'carry on' resumes, 'cancel' or reset ends it
+        self._resetting = False
+        self._busy = 0                                  # instructions currently running (0 or 1)
+        self._busy_lock = threading.Lock()
+        self.recovery = None
+        if gate is not None:                            # a hand gate means cameras that can stall: recover from FAULT stops by itself
+            self.recovery = RecoverySupervisor(gate, self.safety, self.arm, self._announce)
+            self.recovery.start()
 
     def _announce(self, text: str) -> None:
         """A fixed local phrase from the arm ('Pausing: a hand is in the way'): spoken, and on the timeline so Deck shows it. No model call."""
@@ -56,8 +66,34 @@ class Runtime:
         self.said.append(text)
         self._say(text)
 
+    def _local(self, text: str, what: str, outcome: str, status: str = "ok") -> None:
+        self.log.record("Safety", f"{text!r} (local {what}, no model call)", outcome, 0, status=status)
+
     def command(self, text: str, image_jpeg: bytes | None = None) -> RunResult:
-        # A stop word never waits for anything. Otherwise look at the table first, and if it cannot be seen, do not move.
+        # A stop word never waits for anything. 'Cancel' and 'carry on' are local too (no model, never queued behind the running command).
+        if CANCEL_WORDS.match(text) and not STOP_WORDS.match(text):
+            self._local(text, "cancel word", "cancelled")
+            self.cancel()
+            return RunResult(text, steps=[{"name": "cancel", "args": {}, "result": "cancelled"}], reply="cancelled")
+        if CARRY_ON_WORDS.match(text):
+            ok = self.resume()
+            self._local(text, "carry-on word", "carrying on" if ok else "could not carry on", "ok" if ok else "blocked")
+            return RunResult(text, steps=[{"name": "resume", "args": {}, "result": "resumed" if ok else "refused"}],
+                             reply="carrying on" if ok else "I can't carry on yet; check the safety status")
+        with self._busy_lock:
+            self._busy += 1
+        try:
+            result = self._command(text, image_jpeg)
+        finally:
+            with self._busy_lock:
+                self._busy -= 1
+        if self.tools.cancelled and not self.safety.stopped and not self._resetting:      # the instruction was cancelled: fold back to Rest
+            self.tools.begin_instruction()
+            self.tools.go_rest()
+        return result
+
+    def _command(self, text: str, image_jpeg: bytes | None = None) -> RunResult:
+        # Otherwise look at the table first, and if it cannot be seen, do not move.
         if self.scene is not None and not STOP_WORDS.match(text):
             try:
                 self.scene.refresh()
@@ -69,17 +105,71 @@ class Runtime:
     def stop(self) -> str:
         return self.orchestrator.stop()
 
+    def cancel(self) -> str:
+        """'Cancel' / 'never mind': end the current instruction (nothing latches), then fold back to Rest. If nothing is running, just go to Rest."""
+        result = self.orchestrator.cancel()
+        with self._busy_lock:
+            idle = self._busy == 0
+        if idle and not self.safety.stopped:
+            def rest():
+                self.tools.begin_instruction()
+                self.tools.go_rest()
+            threading.Thread(target=rest, name="cancel-rest", daemon=True).start()
+        return result
+
+    def resume(self) -> bool:
+        """'Carry on' / 'resume' (or Deck's button): clear a stop, keeping the scene and any held object, so the interrupted pick or place goes on from
+        where it stopped. False if the hand gate cannot be brought back (a camera is missing), in which case it stays latched."""
+        if not (self.safety.stopped or self.safety.holding):
+            return True
+        self.safety.hold(True)                   # no motion until the new gate is up and the arm's own latch is clear
+        try:
+            if self.gate is not None:
+                self.gate.reset()
+            resume = getattr(self.arm, "resume", None)
+            if callable(resume):
+                resume()
+            if self.gate is None:
+                self.safety.reset()
+        except Exception as exc:
+            self._announce(f"I can't carry on yet: {exc}")
+            self.safety.hold(False)
+            return False
+        self.safety.hold(False)
+        return True
+
+    def motion_status(self) -> dict:
+        """What Deck shows about the current stop: {"stop": {kind, reason, recovering_in_s, resets_left}} when stopped or recovering."""
+        out: dict = {}
+        if self.safety.stopped or self.safety.holding:
+            recovery = self.recovery.status() if self.recovery is not None else None
+            kind = self.safety.stop_kind or "fault"
+            out["stop"] = {"kind": kind, "reason": self.safety.stop_reason or ("recovering" if self.safety.holding else ""),
+                           "recovering_in_s": recovery["recovering_in_s"] if recovery and kind == "fault" else None,
+                           "resets_left": self.recovery.resets_left() if self.recovery is not None else 0}
+        return out
+
     def hand_gate_status(self) -> dict | None:
         return None if self.gate is None else self.gate.status()
 
     def reset(self) -> None:
         """Clear the stop latch and put the simulation back. An explicit operator action, never on the safety path.
         With a hand gate this builds a fresh gate, and no motion is allowed until it has a fresh observation."""
-        if self.gate is not None:
-            self.gate.reset()                       # also clears the shared safety latch
-        self.safety.reset()
-        if hasattr(self.arm, "action"):
-            self.arm.action("reset")
+        self._resetting = True
+        try:
+            self.tools.cancel()                     # end any instruction that is waiting (for a hand, a recovery or a 'carry on')
+            if self.tools._action_lock.acquire(timeout=5):
+                self.tools._action_lock.release()   # it has unwound
+            if self.gate is not None:
+                self.gate.reset()                   # also clears the shared safety latch
+            self.safety.reset()
+            self.safety.hold(False)
+            if hasattr(self.arm, "action"):
+                self.arm.action("reset")
+            self.tools.begin_instruction()
+        finally:
+            self._resetting = False
+        self.tools.go_rest()                        # resets end at Rest
 
     def timeline(self) -> list[dict]:
         return self.log.entries()

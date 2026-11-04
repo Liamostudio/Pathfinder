@@ -67,8 +67,8 @@ class HandSafetyMonitor:
             self.tick()
 
     def fail(self, reason):
-        # Set the latch BEFORE invoking the adapter; late results cannot resurrect motion.
-        self.safety.stop()
+        # Set the latch BEFORE invoking the adapter; late results cannot resurrect motion. A fault, unless a person's stop is already latched.
+        self.safety.stop("fault", str(reason))
         with self._gate_lock:
             self.reason = str(reason)
             self.scale = 0.0
@@ -84,7 +84,8 @@ class HandSafetyMonitor:
 
     def _evaluate(self):
         if self._halt_sent.is_set() or self.safety.stopped:
-            self.safety.stop()
+            if not self.safety.stopped:                  # this monitor failed earlier: keep the latch it set
+                self.safety.stop("fault", self.reason)
             self.scale = 0.0
             if not self._halt_sent.is_set():
                 self.fail('manual stop')

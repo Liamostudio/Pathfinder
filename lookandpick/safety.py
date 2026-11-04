@@ -50,18 +50,37 @@ class Safety:
             raise ValueError("need 0 <= stop distance < slow distance")
         self.stop_distance_m, self.slow_distance_m = stop_distance_m, slow_distance_m
         self._stopped = threading.Event()
+        self._hold = threading.Event()          # a recovery in progress: no motion, but not a latch
+        self.stop_count = 0                     # how many times anything has latched: lets a waiting move notice a stop that was cleared again
+        self.stop_kind: str | None = None       # "person" (STOP button, space bar, spoken stop) or "fault" (camera stall, detector loss, a stalled move)
+        self.stop_reason = ""
 
     @classmethod
     def for_arm(cls, arm) -> "Safety":
         """The simulated arm (it says `simulated = True`) stops at 10 cm; every other arm, the real one included, keeps 15 cm."""
         return cls(stop_distance_m=SIM_STOP_DISTANCE_M) if getattr(arm, "simulated", False) else cls()
 
-    def stop(self) -> None:
-        """Latches. Bypasses every other check."""
+    def stop(self, kind: str = "person", reason: str = "") -> None:
+        """Latches. Bypasses every other check. `kind` is "person" (the default, so an unknown caller can never be auto-cleared) or "fault".
+        A person's stop is never downgraded: a fault arriving later does not make it clearable by the recovery supervisor."""
+        if kind not in ("person", "fault"):
+            raise ValueError("kind must be 'person' or 'fault'")
+        self.stop_count += 1
+        if not self._stopped.is_set() or (kind == "person" and self.stop_kind != "person"):
+            self.stop_kind, self.stop_reason = kind, reason or ("stop requested" if kind == "person" else "fault")
         self._stopped.set()
 
     def reset(self) -> None:
         self._stopped.clear()
+        self.stop_kind, self.stop_reason = None, ""
+
+    def hold(self, on: bool = True) -> None:
+        """Zero speed without a latch, while the recovery supervisor makes sure the way has been clear for a while."""
+        (self._hold.set if on else self._hold.clear)()
+
+    @property
+    def holding(self) -> bool:
+        return self._hold.is_set()
 
     @property
     def stopped(self) -> bool:
@@ -69,7 +88,7 @@ class Safety:
 
     def allowed_speed(self, hands: list[Hand], path: tuple[Vec3, Vec3]) -> float:
         """Speed scale for a move along `path` given where the hands are right now."""
-        if self.stopped:
+        if self.stopped or self.holding:
             return 0.0
         if not all(valid_position(p) for p in path):
             return 0.0
@@ -82,10 +101,22 @@ class Safety:
         nearest = min(max(0.0, point_segment_distance(h.position, *path) - h.radius_m) for h in hands)
         return speed_scale(nearest, self.stop_distance_m, self.slow_distance_m)
 
+    def hands_clear(self, hands: list[Hand], path: tuple[Vec3, Vec3]) -> bool:
+        """True when no hand is inside the stop distance of `path`, whatever the latch or hold says. For the recovery supervisor, which has to
+        know whether the way is clear while the arm is still held."""
+        if not all(valid_position(p) for p in path) or not all(valid_position(h.position) for h in hands):
+            return False
+        if not all(math.isfinite(h.radius_m) and h.radius_m >= 0 for h in hands) or any(h.id == NO_GATE_ID for h in hands):
+            return False
+        if not hands:
+            return True
+        nearest = min(max(0.0, point_segment_distance(h.position, *path) - h.radius_m) for h in hands)
+        return speed_scale(nearest, self.stop_distance_m, self.slow_distance_m) > 0.0
+
     def hand_in_the_way(self, hands: list[Hand], path: tuple[Vec3, Vec3]) -> bool:
         """True only when the speed is zero SOLELY because a hand is too close: not stopped, and every input valid.
         That is the one zero worth waiting out; any other zero (a latch, bad geometry) is a refusal."""
-        if self.stopped or not all(valid_position(p) for p in path) or not all(valid_position(h.position) for h in hands):
+        if self.stopped or self.holding or not all(valid_position(p) for p in path) or not all(valid_position(h.position) for h in hands):
             return False
         if not all(math.isfinite(h.radius_m) and h.radius_m >= 0 for h in hands):
             return False
