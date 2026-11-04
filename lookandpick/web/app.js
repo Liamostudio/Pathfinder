@@ -10,7 +10,8 @@ let demoGeneration = 0;
 let filter = 'all';
 let page = 'workspace';
 let viewpoint = 'perspective';
-let runtimeView='sim';
+let runtimeView='saved',workspaceReady=false;
+window.addEventListener('pathfinder-workspace-ready',e=>{workspaceReady=e.detail.ready;});
 let media = 'synthetic';
 let stream = null;
 let recordingUrl = null;
@@ -36,6 +37,7 @@ function connection(ok) {
 }
 
 async function request(action, fields = {}, quiet = false) {
+  window.dispatchEvent(new Event('pathfinder-live-view'));
   if (!quiet) pending = true;
   updateButtons();
   try {
@@ -83,7 +85,7 @@ async function poll() {
       connection(true);
     }
   } catch (_) { connection(false); }
-  setTimeout(poll, 600);
+  setTimeout(poll, document.hidden?500:80);
 }
 
 function updateButtons() {
@@ -127,7 +129,7 @@ function acceptState(next) {
     button.setAttribute('aria-pressed', active);
   });
   if(state.backend==='sim'){
-    document.body.dataset.runtimeView=runtimeView;$('#synthetic-stage-panel').hidden=runtimeView!=='sim';$('#active-workspace-visual').hidden=runtimeView==='sim';$('#preview-note').hidden=runtimeView!=='sim';
+    const view=workspaceReady?runtimeView:'sim';document.body.dataset.runtimeView=view;$('#synthetic-stage-panel').hidden=view!=='sim';$('#active-workspace-visual').hidden=view==='sim';$('#preview-note').hidden=view!=='sim';
     $('.command-label .caption').textContent='runtime command';$('.command-label .micro').textContent=state.model;
     $('#stage-label').textContent='● MuJoCo simulation / schematic';$('#stage-subtitle').textContent='Runtime → constrained tools → simulator';
     const spark=$('.integrations .rack-row:nth-of-type(3) .rack-tag');if(spark)spark.textContent=state.model;
@@ -226,7 +228,7 @@ function label(point, text, selected = false) {
 }
 
 function drawScene() {
-  if (state && media === 'synthetic') {
+  if (state && media === 'synthetic'&&!$('#synthetic-stage-panel').hidden) {
     const target = state.scene.arm_position;
     visualArm = visualArm.map((n, i) => reducedMotion ? target[i] : n + (target[i] - n) * 0.1);
     const signature = JSON.stringify([viewpoint, state.scene, state.selected, visualArm.map(n => n.toFixed(4))]);
@@ -362,7 +364,8 @@ async function runDemo() {
 }
 
 async function runRuntimeDemo(){
- const generation=++demoGeneration;demoRunning=true;pending=true;updateButtons();showPage('workspace');$('#show-sim-view').click();
+ window.dispatchEvent(new Event('pathfinder-live-view'));
+ const generation=++demoGeneration;demoRunning=true;pending=true;updateButtons();showPage('workspace');$(workspaceReady?'#show-saved-view':'#show-sim-view').click();
  try{
   const reply=await fetch('/api/demo',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}),job=await reply.json();if(!reply.ok)throw Error(job.error);
   toast('Building the seeded MuJoCo recording. Playback will be labelled as a replay.');
@@ -371,7 +374,8 @@ async function runRuntimeDemo(){
    const r=await fetch(`/api/commands/${job.job_id}`),status=await r.json();if(!r.ok)throw Error(status.error);
    if(status.status==='error')throw Error(status.error);
    if(status.status==='completed'){
-    $('#runtime-replay')?.remove();const frame=document.createElement('iframe');frame.id='runtime-replay';frame.title='Recorded seeded simulation demo';frame.src='/replay/index.html?source=/api/demo-replay&autoplay=1';$('.stage-media').append(frame);toast('Seeded demo playback / pre-recorded simulation.');return;
+    if(workspaceReady){const response=await fetch('/api/demo-replay',{signal:AbortSignal.timeout(6000)});if(!response.ok)throw Error('Recorded take unavailable');const take=await response.json();if(generation!==demoGeneration)return;if(take.frames?.every(f=>Array.isArray(f.arm_base_offset))){window.dispatchEvent(new CustomEvent('pathfinder-replay',{detail:take}));toast('Recorded scripted simulation · Return to live exits the take.');return;}}
+    $('#show-sim-view').click();$('#runtime-replay')?.remove();const frame=document.createElement('iframe');frame.id='runtime-replay';frame.title='Recorded seeded simulation demo';frame.src='/replay/index.html?source=/api/demo-replay&autoplay=1';$('.stage-media').append(frame);toast('Seeded demo playback / pre-recorded simulation.');return;
    }
    await new Promise(resolve=>setTimeout(resolve,100));
   }
@@ -404,9 +408,8 @@ $$('[data-filter]').forEach(button => button.addEventListener('click', () => {
   if (state) renderEvents();
 }));
 $('#show-sim-view').onclick=()=>{runtimeView='sim';document.body.dataset.runtimeView='sim';$('#synthetic-stage-panel').hidden=false;$('#active-workspace-visual').hidden=true;};
-$('#show-saved-view').onclick=()=>{runtimeView='saved';document.body.dataset.runtimeView='saved';$('#synthetic-stage-panel').hidden=true;$('#active-workspace-visual').hidden=false;};
+$('#show-saved-view').onclick=()=>{runtimeView='saved';document.body.dataset.runtimeView=workspaceReady?'saved':'sim';$('#synthetic-stage-panel').hidden=workspaceReady;$('#active-workspace-visual').hidden=!workspaceReady;};
 $('#command-form').addEventListener('submit', event => {
-  if(state?.backend==='sim')$('#show-sim-view').click();
   $('#runtime-replay')?.remove();
   event.preventDefault();
   const text = $('#command').value.trim();

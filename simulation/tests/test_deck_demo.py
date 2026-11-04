@@ -9,3 +9,6 @@ def test_seeded_filming_demo_three_identical_runs():
     assert any(e['input']=='STOP' for e in run['events'])
     assert any(e['output'].startswith('placed') for e in run['events'])
     assert run['frames'][-1]['stopped']
+
+    assert all(f['scene_frame']=='marker_metres' and len(f['arm_base_offset'])==3 and f['stop_distance_m']>0 for f in run['frames'])
+    assert run['frames'][-1]['stop']['kind']=='person'

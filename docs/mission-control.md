@@ -59,7 +59,7 @@ marker-to-arm alignment and the physical 1 cm acceptance check remain outstandin
 
 - `lookandpick/mission_control.py`: standard-library loopback HTTP server and simulation session.
 - `lookandpick/web/`: HTML, CSS, JavaScript and bundled fonts; no external runtime requests.
-- `/api/state`: shared scene, gate status and timeline. The UI polls every 600 ms.
+- `/api/state`: shared scene, gate status and timeline. The visible UI polls at approximately 12 Hz; hidden tabs back off.
 - `/api/action`: a bounded JSON request with a predefined action; no arbitrary code execution.
 - Only loopback access is supported. Host/origin checks and JSON-only action requests reject
   unrelated websites; this is a local development tool, not a public server.
@@ -92,7 +92,7 @@ decoding and the unsupported-recording error were checked. Webcam permission was
 
 Start the MuJoCo bridge with `simulation/.venv/bin/python simulation/start.py`. Then run `.venv/bin/python -m lookandpick.mission_control --backend sim --model fake`. The default backend remains the original model-free workbench. To keep both open, add `--port 8769` to the Runtime Deck. `--model spark` uses the existing configured Meta account, spend cap and CallLog; `--model glimmer` uses the existing local model configuration. Keys never enter the browser.
 
-Commands run in a worker through `Runtime.command`; `POST /api/command {"text":"..."}` immediately returns a job ID (202). Poll `GET /api/commands/<id>`. `POST /api/stop {}` bypasses the command lock and model; `GET /api/timeline?since=<id>` returns the existing CallLog schema, including cost and token counts. Reset waits until a command has returned. The UI keeps polling while commands run, and STOP remains enabled. The schematic uses simulator state. Use “Saved workspace / voxel editor” to inspect the independent visual workspace.
+Commands run in a worker through `Runtime.command`; `POST /api/command {"text":"..."}` immediately returns a job ID (202). Poll `GET /api/commands/<id>`. `POST /api/stop {}` bypasses the command lock and model; `GET /api/timeline?since=<id>` returns the existing CallLog schema, including cost and token counts. Reset waits until a command has returned. The UI keeps polling while commands run, and STOP remains enabled. The default Run view draws simulator state into the active saved 3D workspace; Schematic is the fallback, and Voxel editor restores inspection tools. See [Run view handover](run-view-polish-handover-2026-11-04.md).
 
 ### Hand gate
 

@@ -30,7 +30,11 @@ def run_demo(seed=0):
     def snapshot():
         state=sim.state();gate=simulated_gate(state);gate['updated']=round(clock(),6)
         return {'t':round(clock(),6),'scene':state['scene'],'hand_gate':gate,'stopped':state['stopped'],
-                'joints':state['joints'],'speed_scale':state['speed_scale']}
+                'joints':state['joints'],'speed_scale':state['speed_scale'],
+                'arm_base_offset':state['arm_base_offset'],'scene_frame':'marker_metres',
+                'selected':state['scene']['objects'][0]['id'] if state['scene']['objects'] else None,
+                'stop_distance_m':runtime.safety.stop_distance_m,
+                **({'stop':{'kind':'person','reason':'Scripted STOP during the recorded take','recovering_in_s':None,'resets_left':0}} if state['stopped'] else {})}
     def scripted_step():
         nonlocal hand_stage,last_gate,stop_sent
         t=clock()

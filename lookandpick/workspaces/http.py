@@ -89,6 +89,12 @@ def dispatch(handler,service,method):
             if len(parts)==5 and parts[3]=='assets' and method=='GET':send_file(handler,service.asset(key,parts[4],run=run));return True
         if len(parts)>=3 and parts[:2]==['api','workspaces']:
             key=parts[2];service.repo.folder(key)
+            if method=='GET' and ((len(parts)==4 and parts[3] in ('table-texture.json','table-texture.png')) or (len(parts)==6 and parts[3]=='versions' and parts[5] in ('table-texture.json','table-texture.png'))):
+                from .table_appearance import cached
+                target,metadata=cached(service,key,parts[4] if len(parts)==6 else None)
+                if parts[-1].endswith('.png'):send_file(handler,target)
+                else:handler._json(200,metadata)
+                return True
             if len(parts)==3 and method=='GET':handler._json(200,service.get(key));return True
             if len(parts)==4:
                 action=parts[3]

@@ -80,3 +80,17 @@ def test_external_status_provider_proxies_only_loopback_and_is_display_only():
     finally:session.close();server.shutdown();server.server_close()
     import pytest
     with pytest.raises(ValueError):create_session(status_url='https://example.com')
+
+
+def test_simulator_base_and_frame_survive_state_and_recording():
+    class PositionedArm(SimArm):
+        def state(self):return {'arm_base_offset':[0,-.12,0],'joints':{'shoulder_pan':{'position':.25}}}
+    log=CallLog();session=RuntimeSession(Runtime(ScriptedModel(log),arm=PositionedArm(),tracker=FakeTracker(),log=log))
+    try:
+        state=session.state();record=session.replay()['frames'][-1]
+        for data in (state,record):
+            assert data['arm_base_offset']==[0,-.12,0]
+            assert data['scene_frame']=='marker_metres'
+            assert data['joints']['shoulder_pan']['position']==.25
+            assert data['stop_distance_m']==session.safety.stop_distance_m
+    finally:session.close()

@@ -90,6 +90,8 @@ class RuntimeSession:
                 'uptime_s':time.monotonic()-self.started,'events':self.timeline(),'busy':self.active is not None,
                 'active_job':self.active,'joints':raw.get('joints',{}),'model':self.runtime.model.name}
         data['stop_distance_m']=self.safety.stop_distance_m
+        data['arm_base_offset']=raw.get('arm_base_offset')
+        data['scene_frame']='marker_metres'
         data['motion_controls']={'resume':callable(getattr(self.runtime,'resume',None))}
         provider=self._motion_status or getattr(self.runtime,'motion_status',None)
         try:
@@ -103,7 +105,7 @@ class RuntimeSession:
         gate = self.hand_gate(data); data['hand_gate'] = gate; data['separation_m'] = gate.get('nearest_m') if gate else None
         with self._lock:
             frame = {'t':round(time.monotonic()-self._record_start,3),'scene':scene,'hand_gate':gate,'stopped':stopped,
-                     'joints':data['joints'],'speed_scale':data['speed_scale'],**{k:data[k] for k in ('stop','route') if k in data}}
+                     'joints':data['joints'],'speed_scale':data['speed_scale'],**{k:data[k] for k in ('stop','route','arm_base_offset','scene_frame','stop_distance_m','selected','busy') if k in data}}
             if not self.frames or frame['t']-self.frames[-1]['t']>=.04: self.frames=(self.frames+[frame])[-18000:]
         return data
 

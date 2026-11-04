@@ -54,5 +54,10 @@
    "worst_mm": 8.45399676539567,
    "n": 40
   }
+ },
+ "visual_alignment": {
+  "foot_yaw_marker_deg": 180.0,
+  "pan_draw_offset_deg": -41.871965619071574,
+  "note": "Visual only: foot orientation is separate from the measured pan-zero frame. Never a motion or safety input."
  }
 }

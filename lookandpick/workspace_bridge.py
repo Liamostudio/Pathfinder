@@ -55,7 +55,7 @@ def robot_placement(canonical_from_marker: Matrix4, frame: BaseFrame) -> dict:
             "placement_status": "touch_calibrated", "placement_source": "so101 tip-touch calibration (base frame)"}
 
 
-def urdf_joint_radians(reading_deg: dict[str, float], offsets_deg: dict[str, float]) -> dict[str, float]:
+def urdf_joint_radians(reading_deg: dict[str, float], offsets_deg: dict[str, float], *, pan_draw_offset_deg: float = 0.0) -> dict[str, float]:
     """LeRobot readings -> the URDF joint angles (radians) the editor draws; the gripper is mapped linearly and only approximately."""
     out = {}
     for name in ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"):
@@ -64,4 +64,5 @@ def urdf_joint_radians(reading_deg: dict[str, float], offsets_deg: dict[str, flo
     if "gripper" in reading_deg:
         low, high = URDF_GRIPPER_RAD
         out["gripper"] = low + (high - low) * max(0.0, min(100.0, reading_deg["gripper"])) / 100.0
+    if 'shoulder_pan' in out:out['shoulder_pan'] += math.radians(pan_draw_offset_deg)
     return out
