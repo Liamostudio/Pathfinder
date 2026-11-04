@@ -52,6 +52,10 @@ class Session:
         if action=='nudge':return {'result':self.sim.nudge(payload.get('name'),payload.get('dx'),payload.get('dy'))}
         if action=='hide':return {'result':self.sim.hide(payload.get('name'),payload.get('hidden',True))}
         if action=='grip_miss_once':return {'result':self.sim.grip_miss_once()}
+        if action=='scene_preset':
+            with self.lock:
+                if self.active or self.closing:raise ValueError('Wait for the active action to finish')
+                return {'result':self.sim.scene_preset(payload.get('positions'))}
         if action == 'camera':
             if not self.cameras:
                 raise ValueError('Rendering disabled')

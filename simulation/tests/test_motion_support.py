@@ -49,8 +49,12 @@ def test_rest_pauses_then_completes_and_cancel_can_interrupt_it(sim):
     sim.set_speed_scale(0);result=[]
     worker=threading.Thread(target=lambda:result.append(sim.rest()));worker.start()
     wait_for(lambda:sim.target is not None)
-    initial=sim.data.qpos[sim.qids].copy();time.sleep(.03)
-    assert worker.is_alive() and np.array_equal(initial,sim.data.qpos[sim.qids])
+    # mj_step briefly integrates gravity before the kinematic hold restores qpos.
+    # Readers must take the same lock as state(), not sample that intermediate state.
+    with sim.lock:initial=sim.data.qpos[sim.qids].copy()
+    time.sleep(.03)
+    with sim.lock:paused=sim.data.qpos[sim.qids].copy()
+    assert worker.is_alive() and np.array_equal(initial,paused)
     sim.set_speed_scale(1);worker.join(3);assert result==[True]
     sim.reset();sim.set_speed_scale(0);result.clear()
     worker=threading.Thread(target=lambda:result.append(sim.rest()));worker.start();wait_for(lambda:sim.target is not None)
