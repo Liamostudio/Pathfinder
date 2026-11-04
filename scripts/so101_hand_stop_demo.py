@@ -24,6 +24,7 @@ ceiling is 10 deg/s), never past a joint's calibrated range. The supply is check
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import select
 import sys
@@ -114,7 +115,15 @@ def watch_pose(rig, hands, config, *, sleep=time.sleep, out=print, limit=None):
                 verdict = "OK: sweep plan accepted from here"
             except DemoRefused as exc:
                 verdict = "not yet: " + str(exc).split(".")[0][:90]
-            sight = "seeing" if hands.read().ok else "BLIND"
+            reading = hands.read()
+            if not reading.ok:
+                sight = f"BLIND ({reading.why})"
+            elif not reading.hands:
+                sight = "seeing, no hand"
+            else:
+                gap = min(max(0.0, math.dist(h.position, tip) - h.radius_m) for h in reading.hands)
+                near = min(reading.hands, key=lambda h: math.dist(h.position, tip))
+                sight = "HAND %d cm from tip at %.2f %.2f %.2f (r %.0f cm)" % (gap * 100, *near.position, near.radius_m * 100)
             out("\r\x1b[2K" + "pan %6.1f lift %6.1f elbow %6.1f wrist %6.1f | tip %.2f %.2f %.2f | %s | %s"
                 % (pos["shoulder_pan"], pos["shoulder_lift"], pos["elbow_flex"], pos["wrist_flex"], *tip, sight, verdict), end="", flush=True) \
                 if out is print else out(f"{pos['wrist_flex']:.1f} {verdict}")
