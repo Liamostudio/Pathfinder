@@ -1,6 +1,6 @@
 import {WorkspaceRenderer} from './workspace-renderer.js';
 import {rectangle,resizeRectangle} from './workspace-math.js';
-import {WorkAreaEditor} from './work-area.js';
+import {WorkAreaEditor,resetNoGoCubes} from './work-area.js';
 const $=id=>document.getElementById(id),stages={ingest:'Importing',geometry:'Reconstructing geometry',segmentation:'Segmenting surfaces and objects',surfaces:'Building surfaces',appearance:'Fitting appearance',previews:'Exporting previews',ready:'Ready'};
 let selected=localStorage.getItem('pathfinderWorkspace'),current=null,files=[],renderer=null,activeRenderer=null,loaded=null,activeLoaded=null,busy=false,framesSignature='',previewSignature='',draftRevision='',drawPolygon=[],maskEdits={},robotDescription=null,pollTimer=null,reviewLoad=null,activeManifest=null,cornerSignature='';
 const prompts={table:['table'],wall:['wall'],robot:['robot arm','robotic arm','robot'],tripod:['tripod'],chair:['chair']};
@@ -16,8 +16,30 @@ async function list(){const result=await api('/api/workspaces');$('ws-library').
  if(!selected&&result.workspaces.length){selected=result.workspaces[0].id;await refresh();}
  if(result.active)await loadActive(result.active);return result;
 }
-async function loadActive(manifest){const signature=manifest.id+'/'+manifest.version_id;if(activeLoaded===signature)return;activeLoaded=signature;try{activeRenderer??=new WorkspaceRenderer($('active-photo-canvas'),$('active-cad-canvas'));$('active-workspace-visual').hidden=false;$('synthetic-stage-panel').hidden=true;$('preview-note').hidden=true;$('active-workspace-name').textContent=manifest.name+' / '+manifest.version_id;await activeRenderer.load(manifest,assetBase(manifest,manifest.version_id));activeRenderer.setMode('cad');activeManifest=manifest;
+async function loadActive(manifest){const signature=manifest.id+'/'+manifest.version_id;if(activeLoaded===signature)return;activeLoaded=signature;clearNoGoButton.disabled=true;$('active-voxel-edit-status').textContent='';try{activeRenderer??=new WorkspaceRenderer($('active-photo-canvas'),$('active-cad-canvas'));$('active-workspace-visual').hidden=false;$('synthetic-stage-panel').hidden=true;$('preview-note').hidden=true;$('active-workspace-name').textContent=manifest.name+' / '+manifest.version_id;await activeRenderer.load(manifest,assetBase(manifest,manifest.version_id));activeRenderer.setMode('cad');activeManifest=manifest;
  activeRenderer.onVoxelMode=mode=>$('active-voxel-mode').value=mode;activeRenderer.onVoxelEdit=async(indices,blocked)=>{const root=`/api/workspaces/${manifest.id}/versions/${manifest.version_id}`,snap=await api(root+'/voxels'),target=blocked===null?!snap.manual_blocked.includes(indices[0]):blocked;const result=await api(root+'/voxel-edits',{revision:snap.revision,policy_revision:snap.policy_revision,indices,blocked:target});if(activeManifest===manifest)activeRenderer.setWorkingArea(manifest.working_area,manifest.marker_alignment,result);};activeRenderer.onVoxelError=message=>$('active-voxel-status').textContent=message;}catch(e){activeLoaded=null;$('active-workspace-visual').hidden=true;$('synthetic-stage-panel').hidden=false;$('preview-note').hidden=false;notice('Saved workspace viewer: '+e.message);}}
+const clearNoGoButton=$('active-clear-no-go');
+let clearingNoGo=false;
+clearNoGoButton.onclick=async()=>{
+ const manifest=activeManifest;
+ if(clearingNoGo||!manifest?.working_area?.enabled)return;
+ const signature=manifest.id+'/'+manifest.version_id;
+ const isCurrent=()=>activeLoaded===signature&&activeManifest===manifest;
+ if(!isCurrent())return;
+ const url=`/api/workspaces/${manifest.id}/versions/${manifest.version_id}`;
+ const status=$('active-voxel-edit-status');
+ clearingNoGo=true;
+ clearNoGoButton.disabled=true;
+ status.textContent='';
+ try{
+  const result=await resetNoGoCubes(url,manifest.name,isCurrent);
+  if(result&&isCurrent()){
+   activeRenderer.setWorkingArea(manifest.working_area,manifest.marker_alignment,result.snapshot);
+   status.textContent=result.message;
+  }
+ }catch(e){if(isCurrent())status.textContent=e.message;}
+ finally{clearingNoGo=false;}
+};
 function sources(){const saved=(current?.sources||[]).filter(s=>!s.excluded);$('ws-sources').replaceChildren(...saved.map(source=>{const row=document.createElement('div');row.className='ws-source';const label=document.createElement('span');label.textContent=`${source.name} · ${(source.bytes/1024**2).toFixed(1)} MB`;row.append(label,button('×',async()=>{await api(root()+'/sources/'+source.id,{},'DELETE');await refresh();}));return row;}),...files.map((file,i)=>{const row=document.createElement('div');row.className='ws-source';const label=document.createElement('span');label.textContent=file.name+' / pending import';row.append(label,button('×',()=>{files.splice(i,1);sources();}));return row;}));}
 function config(){const values={...(current?.draft?.settings||{}),video_fps:Number($('ws-fps').value),video_frames:Number($('ws-budget').value),steps:Number($('ws-steps').value),reference_view:$('ws-reference').value||null,view_ids:[...$('ws-frames').querySelectorAll('input:checked')].map(i=>i.value),prompts:structuredClone(prompts),mask_edits:maskEdits,preview_orbit:$('ws-orbit').checked};for(const field of $('ws-prompts').querySelectorAll('input'))values.prompts[field.dataset.category]=field.value.split(',').map(x=>x.trim()).filter(Boolean);return values;}
 async function ensure(){if(selected)return;const value=await api('/api/workspaces',{name:$('ws-name').value});selected=value.id;localStorage.setItem('pathfinderWorkspace',selected);current=value;}
@@ -61,7 +83,7 @@ function maskView(){if(!current)return;const name=$('ws-mask-view').value;$('ws-
 function maskDrawing(){const svg=$('ws-mask-drawing');svg.setAttribute('viewBox','0 0 1 1');svg.setAttribute('preserveAspectRatio','none');const p=document.createElementNS('http://www.w3.org/2000/svg','polygon');p.setAttribute('points',drawPolygon.map(p=>p.join(',')).join(' '));svg.replaceChildren(p);}
 function renderPreviews(){const draft=current?.draft,job=current?.job,entries=[...(job?.artifacts||[]).filter(a=>['image','video'].includes(a.kind)).map(a=>({...a,fromJob:true})),...(draft?.previews||[])],sig=JSON.stringify([selected,job?.id,draft?.run_id,entries.map(x=>x.id)]);if(sig===previewSignature)return;previewSignature=sig;$('ws-previews').replaceChildren(...entries.filter(a=>a.kind==='video'||a.kind==='image').map(entry=>{const figure=document.createElement('figure'),el=document.createElement(entry.kind==='video'?'video':'img'),caption=document.createElement('figcaption'),a=document.createElement('a');el.src=entry.fromJob?`/api/workspace-jobs/${job.id}/assets/${entry.id}`:assetBase(current)+'/'+entry.id;if(entry.kind==='video'){el.controls=true;el.preload='metadata';}else{el.alt=entry.name;el.loading='lazy';}caption.textContent=entry.name;a.href=el.src;a.download='';a.textContent='download ↓';figure.append(el,caption,a);return figure;}));}
 const areaEditor=new WorkAreaEditor({context:()=>({current,renderer}),patch,notice,mode:()=>{$('ws-cad').click();}});
-setInterval(async()=>{if(!activeManifest?.working_area?.enabled||!activeRenderer)return;const manifest=activeManifest;try{const snapshot=await api(`/api/workspaces/${manifest.id}/versions/${manifest.version_id}/voxels`);if(activeManifest!==manifest)return;activeRenderer.setWorkingArea(manifest.working_area,manifest.marker_alignment,snapshot);const c=snapshot.counts;$('active-voxel-status').textContent=`Voxel area: ${c.occupied} unsafe · ${c.unknown} unknown${snapshot.simulation?' · SIMULATED PEOPLE/HANDS':snapshot.has_recorded_evidence?' · RECORDED RGB':''}`;}catch{if(activeManifest!==manifest)return;$('active-voxel-status').textContent='Voxel observations unavailable · unsafe';activeRenderer.setWorkingArea(manifest.working_area,manifest.marker_alignment,null);}},200);
+setInterval(async()=>{if(clearingNoGo||!activeManifest?.working_area?.enabled||!activeRenderer)return;const manifest=activeManifest;try{const snapshot=await api(`/api/workspaces/${manifest.id}/versions/${manifest.version_id}/voxels`);if(activeManifest!==manifest||activeLoaded!==manifest.id+'/'+manifest.version_id||clearingNoGo)return;clearNoGoButton.disabled=!snapshot.manual_blocked.length;activeRenderer.setWorkingArea(manifest.working_area,manifest.marker_alignment,snapshot);const c=snapshot.counts;$('active-voxel-status').textContent=`Voxel area: ${c.occupied} unsafe · ${c.unknown} unknown${snapshot.simulation?' · SIMULATED PEOPLE/HANDS':snapshot.has_recorded_evidence?' · RECORDED RGB':''}`;}catch{if(activeManifest!==manifest||activeLoaded!==manifest.id+'/'+manifest.version_id||clearingNoGo)return;clearNoGoButton.disabled=true;$('active-voxel-status').textContent='Voxel observations unavailable · unsafe';activeRenderer.setWorkingArea(manifest.working_area,manifest.marker_alignment,null);}},200);
 $('ws-files').onchange=()=>{for(const file of $('ws-files').files){if(!files.some(f=>f.name===file.name))files.push(file);}$('ws-files').value='';sources();};
 $('ws-new').onclick=()=>{renderer?.dispose();renderer=null;robotDescription=null;reviewLoad=null;selected=null;current=null;loaded=null;files=[];framesSignature='';previewSignature='';draftRevision='';maskEdits={};$('ws-review').hidden=true;$('ws-frames').replaceChildren();$('ws-name').value='My workspace';$('ws-previews').replaceChildren();jobPanel(null);sources();notice('Add overlapping photos or a video to create a workspace.');};
 $('ws-fixture').onclick=async()=>{try{const w=await api('/api/workspaces',{name:'Liam’s tabletop · local experiment',fixture:true});selected=w.id;localStorage.setItem('pathfinderWorkspace',selected);loaded=null;framesSignature='';await refresh();}catch(e){notice(e.message);}};

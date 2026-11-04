@@ -2,6 +2,16 @@ import {footprintFromDrag,gridShape,cellCorners,volumeCorners,heightFromDrag,EDG
 const $=id=>document.getElementById(id),ns='http://www.w3.org/2000/svg';
 async function api(url,payload){const r=await fetch(url,payload===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const v=await r.json();if(!r.ok)throw Error(v.error||'Working-area request failed');return v;}
 const el=(name,attributes={})=>{const e=document.createElementNS(ns,name);for(const [k,v] of Object.entries(attributes))e.setAttribute(k,v);return e;};
+export async function resetNoGoCubes(root, name, isCurrent){
+ const snapshot=await api(root+'/voxels');
+ if(!isCurrent())return;
+ const indices=snapshot.manual_blocked;
+ if(!indices.length)return {snapshot,message:'No manual no-go cubes to reset.'};
+ const cubes=`${indices.length} manual no-go ${indices.length===1?'cube':'cubes'}`;
+ if(!window.confirm(`Reset ${cubes} in ${name}? Live observations stay in place.`))return;
+ const result=await api(root+'/voxel-edits',{revision:snapshot.revision,policy_revision:snapshot.policy_revision,indices,blocked:false});
+ return {snapshot:result,message:`Reset ${cubes}.`};
+}
 export class WorkAreaEditor{
  constructor({context,patch,notice,mode}){
   this.context=context;this.patch=patch;this.notice=notice;this.setMode=mode;this.token=0;this.mode=null;this.preview=null;this.stream=null;this.demo=null;this.liveTimer=null;this.pollBusy=false;
@@ -13,6 +23,7 @@ export class WorkAreaEditor{
   $('wa-voxel-mode').onchange=()=>this.renderer?.cubes.setMode($('wa-voxel-mode').value);
   $('wa-pick-back').onclick=()=>this.renderer?.cubes.back();
   $('wa-row-block').onclick=()=>this.renderer?.cubes.edit(this.selectionIndices||this.renderer.cubes.row,true);$('wa-row-unblock').onclick=()=>this.renderer?.cubes.edit(this.selectionIndices||this.renderer.cubes.row,false);
+  $('wa-clear-no-go').onclick=action(()=>this.resetNoGo());
   $('wa-fidelity').onchange=action(async()=>{const value=$('wa-fidelity').value;if(value==='custom'){$('wa-cell').focus();return;}const area=this.manifest?.working_area;if(!area)return;const size=fidelityCellSize(area,Number(value),this.units);await this.commit({...area,cell_size:size});});
   $('wa-demo').onclick=action(()=>this.toggleDemo());$('wa-reset').onclick=action(async()=>{await this.stopSources();await api(this.root+'/voxel-reset',{});await this.poll();});
   $('wa-anchor').onclick=action(async()=>{await this.stopSources();const source=$('wa-source-intrinsics').value.trim();notice('Detecting the marker in original image pixels…');const value=await api(this.root+'/marker-alignment',{view_id:$('wa-source').value,marker_id:Number($('wa-marker').value),marker_size_m:Number($('wa-marker-size').value),marker_size_measured:$('wa-measured').checked,intrinsics:source?JSON.parse(source):null});await this.patch({});notice(`Marker anchored · ${value.draft.marker_alignment.reprojection_px.toFixed(2)} px reprojection error. Robot alignment remains unverified.`);});
@@ -24,7 +35,7 @@ export class WorkAreaEditor{
   this.timer=setInterval(()=>this.poll(),200);window.addEventListener('pagehide',()=>this.dispose());
  }
  setContext(key,manifest,renderer){
-  const identity=key+'/'+manifest.run_id;if(this.identity&&this.identity!==identity){this.stopSources();this.preview=null;this.snapshot=null;this.mode=null;}
+  const identity=key+'/'+manifest.run_id;if(this.identity&&this.identity!==identity){this.stopSources();this.preview=null;this.snapshot=null;this.mode=null;$('wa-voxel-edit-status').textContent='';}
   this.identity=identity;this.key=key;
   renderer.onVoxelEdit=(indices,blocked)=>this.editVoxels(indices,blocked);
   renderer.onVoxelMode=mode=>$('wa-voxel-mode').value=mode;
@@ -43,12 +54,30 @@ export class WorkAreaEditor{
   const root=this.root,identity=this.identity;let snap=await api(root+'/voxels');const target=blocked===null?!snap.manual_blocked.includes(indices[0]):blocked;
   const result=await api(root+'/voxel-edits',{revision:snap.revision,policy_revision:snap.policy_revision,indices,blocked:target});if(root!==this.root||identity!==this.identity)return;this.snapshot=result;this.paint();this.notice(`${indices.length===1?'Voxel '+indices[0]:indices.length+' voxels'} ${target?'manually blocked':'manually unblocked'}. Live occupancy is unchanged.`);
  }
+ async resetNoGo(){
+  if(this.resettingNoGo||!this.snapshot?.manual_blocked?.length)return;
+  const root=this.root,identity=this.identity;
+  const isCurrent=()=>this.root===root&&this.identity===identity;
+  const status=$('wa-voxel-edit-status');
+  this.resettingNoGo=true;
+  $('wa-clear-no-go').disabled=true;
+  status.textContent='';
+  try{
+   const result=await resetNoGoCubes(root,this.manifest.name||'this workspace',isCurrent);
+   if(result&&isCurrent()){
+    this.snapshot=result.snapshot;
+    status.textContent=result.message;
+   }
+  }catch(e){if(isCurrent())status.textContent=e.message;}
+  finally{this.resettingNoGo=false;this.paint();}
+ }
  async commit(area){
   if(gridShape(area).reduce((a,b)=>a*b,1)>4096)throw Error('More than 4,096 cubes. Increase cube size or reduce the volume.');
   await this.stopSources();this.preview=null;this.snapshot=null;await this.patch({working_area:area});await this.poll();
  }
  paint(){
   if(!this.renderer||!this.manifest)return;const area=this.preview||this.manifest.working_area;this.renderer.cubes.reveal=this.drag?.kind==='height'?1:0;this.renderer.cubes.setEnabled(!this.drag&&this.mode!=='draw');this.renderer.setWorkingArea(area,this.manifest.marker_alignment,this.preview?null:this.snapshot);
+  $('wa-clear-no-go').disabled=this.resettingNoGo||!!this.preview||!area?.enabled||!this.snapshot?.manual_blocked?.length;
   $('wa-dimensions').textContent=area?`${(area.width/this.units).toFixed(2)} × ${(area.depth/this.units).toFixed(2)} × ${(area.height/this.units).toFixed(2)} · ${gridShape(area).join(' × ')} cubes`:'';this.draw();
  }
  async poll(){

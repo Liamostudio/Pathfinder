@@ -38,6 +38,10 @@ apply to the selected slice or single voxel.
 Double-click directly toggles the individual voxel under the pointer.
 
 **Edit layout** uses green for manually unblocked cells and red for blocked cells.
+**Reset all no-go cubes** removes every manual block for the displayed grid
+after confirmation. It is available in the working area controls in workspace
+setup and in **Saved workspace / voxel editor** for the active grid. **Reset
+observations to unknown** resets sensor readings separately.
 These editing colours do not certify live clearance. A live occupied cell remains
 red even after its manual block is removed. **Live status** uses the sensor states
 below, with manual restrictions always taking precedence.
