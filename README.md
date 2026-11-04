@@ -1,117 +1,103 @@
-# Look-and-Pick
+# Pathfinder
 
-## Standalone Gaussian splatting app
+## What Pathfinder is
 
-Open **Splat Studio** from your application menu, or run `workspace_splat/.venv/bin/python gaussian_studio/start.py`. It opens its own desktop window with image/folder/video ingestion, local Gaussian reconstruction, four quality presets including Ultra-high, duration estimates, orbit/pan/zoom, native export dialogs, and API-key settings for fal.ai or a custom provider adapter. It runs independently of the robot and simulation UI. See [the Splat Studio guide](gaussian_studio/README.md).
+Pathfinder is a safety layer that lets a robot arm work around people. Meta's models see, understand and decide; a small, checkable local layer enforces. Models never drive the motors.
 
-A table-mounted SO-101 robot arm that works safely around people. Meta's models see, understand and decide; a simple, checkable safety layer enforces. Models never drive the motors directly.
+Solo entry by Liam for the Meta Global AI Developer Hackathon, indie track, “Push the Frontier”. Evidence below refers to the dated log in [PROGRESS.md](PROGRESS.md); later entries supersede its older milestone summaries.
 
-Entry for the Meta Global AI Developer Hackathon (indie track, "Push the Frontier").
+## What it does, as built
+
+| Feature | State on 4 November 2026 | Evidence in PROGRESS.md / checks |
+| --- | --- | --- |
+| Hand gate | Local CPU MediaPipe Hand Landmarker; two calibrated cameras fused into one gate. Slows/stops the simulated arm; independent 150 ms watchdog and latched stops. Either camera stalling stops the arm. | 4 Nov “second camera running behind the fused hand gate, live”: 80 s deliberate hand test, about 32 fps; `tests/test_hand_gate.py` fusion/stall tests. Physical stopping latency and detection accuracy unmeasured. |
+| SAM 3.1 people/hands → voxels | Local segmentation on both cameras, turning cubes red. About 0.6–1.0 s per look: **too slow to be the safety path**. Camera detections never certify a cube as free. | 4 Nov “live camera test…” and “second camera running…”: about 700 occupied cubes with a person present, back to 18 manual cubes after departure; `tests/test_sam_people.py`, `tests/test_voxel_feed.py`. No ground-truth accuracy score. |
+| Manual no-go cubes | User-drawn restrictions are hard rules for simulated moves. Bounded routing tries over/around; blocked targets or no tested route mean refusal and Rest. | 4 Nov “no-go cubes enforced…”, “pure route planner”, “motion tasks 1 to 5”: real-grid checks and 10/10 MuJoCo bridge behaviours (`scripts/sim_motion_check.py`). Fixed obstacles are marked by the user, not detected. |
+| Glasses voice and five constrained tools | Glasses microphone → iPhone app → Muse Voice Transcribe → reviewed transcript → Muse Spark → validated `get_scene`, `pick`, `place`, `stop`, `say`. Liam reports replies played in the glasses. | 4 Nov evening “SPOKEN commands…”: real speech/APIs, simulated pick/place, missed-grip retry and local STOP. Real imported-photo “this one”, noisy-room and disconnect tests unverified. |
+| Motion behaviours | Waits for hands; retries missed grips and re-aims moved targets. Bounded fault recovery; person STOP needs explicit Carry on/reset. Cancel attempts safe put-back then Rest. | 4 Nov “motion tasks 1 to 5”: about 40 new tests repeated three times, 10/10 MuJoCo bridge checks; “simulator Rest…”: 98 passed, 5 skipped. New persistence prompt not separately accepted on Spark; a grip retry was seen in the evening glasses run. |
+| Workspace scan and voxel editor | Imported photos/video → local MapAnything geometry + SAM 3.1 masks + gsplat appearance; editable planes, marker anchoring, saved versions and manual voxel restrictions. | 2 Nov “main-app local workspace setup” and “voxel working-area editor”: real four-photo GUI reconstruction, save/reopen/tests. 4 Nov evening “re-scan and robot placement”: phone-photo scan reconstructed after reducing views following GPU out-of-memory. Glasses video decoded; reconstruction not run. |
+
+## What is simulated and what is real
+
+**The moving arm in the demo is a MuJoCo simulation of the SO-101.** Default object positions come from simulation ground truth. A separate Spark/SAM vision path has been tested on simulator images (3 Nov “language to target”), not accepted on real objects. Simulator servos are kinematic and grasps idealised.
+
+The real SO-101 is built and calibrated. Tip-touch calibration gave about **2 mm height error on held-out touches** (3 Nov touch-calibration entry); this is not general 3D accuracy or a stopping-distance measurement. Powered tests so far are joint-level only. No live Cartesian real-arm move, pick/place or real-arm hand-stop through this pipeline is recorded. The safety layer is validated on the simulator, **not certified**. See the 30 Oct–3 Nov hardware entries and 4 Nov simulator-only motion/glasses entries in [PROGRESS.md](PROGRESS.md).
+
+The cameras, live hand/person observations and evening glasses speech/API calls are real. Fixed obstacles are marked by the user. The iPhone companion is foreground tap-to-speak with transcript review; no wake word or glasses camera streaming is claimed. Any hosted recording must be labelled **replay** ([guide](replay/README.md)).
 
 ## Built during the hackathon
 
-Project-authored work started on **26 October 2026**, straight after the kickoff call. The first commit is the start point. Upstream libraries, models and robot assets predate the event and are credited separately below.
-
-- World state, safety layer (speed-and-separation, stop latch) and the orchestrator tool surface
-- Adapter interfaces with fake implementations for development against recorded footage
-- Scripts to run SAM 3.1 on the 8 GB laptop GPU: a memory and speed test, and a webcam preview that tracks a text prompt (`scripts/`)
-- ArUco table calibration with synthetic-image tests; real-camera validation still pending
-- Deck mission control GUI: simulated scene, safety scenarios, pick/place controls, preview media and session timeline
-- Lightweight hand detector, calibrated hand envelopes and an independent timeout watchdog (simulation tested)
-- SO-101 adapter scaffold with bounded dry-run commands and a read-only health-check helper
-- Photo/video workspace setup, persistent reconstruction jobs, editable planes, Gaussian exports and a separate lime URDF robot
-- ArUco-anchored voxel volumes, faint animated cubes, row/single-cell editing and configurable grid fidelity
-- Splat Studio developer tool and local SAM recorded-clip prompt UI
-- Meta Adventurer/iPhone companion source, authenticated HTTPS relay and reviewed voice/photo jobs into the simulator; [setup and native acceptance still needed](mobile/PathfinderGlasses/README.md)
-- Grasp orientation from fused SAM masks: size and long-axis yaw of an object from two or three calibrated cameras (`lookandpick/object_geometry.py`, tested on synthetic views and on masks rendered in the sim (cube, can, pen, toy duck; concave toys not handled); not yet on real cameras or wired into the live tracker; [plan](docs/grasp-orientation-plan.md))
+Building period: **26 October–4 November 2026**. Project-authored work includes `lookandpick/` (world state, safety, tools, adapters, routing, recovery, Deck and workspace editor), `scripts/`, the iPhone companion, launcher, and simulator bridge/UI/tests. It also includes workspace reconstruction orchestration, the Gaussian training/export loop, Splat Studio developer tool and SAM Prompt interface. Upstream models, libraries, fonts and robot assets were not built here. Evidence: [PROGRESS.md](PROGRESS.md), its “Built during the hackathon” table and dated implementation entries.
 
 ## Open source we build on
 
-| Component | Use | Licence / provenance |
-| --- | --- | --- |
-| [MapAnything](https://github.com/facebookresearch/map-anything) | Joint camera/depth reconstruction | Apache 2.0 source; **Apache 2.0 weights**, `facebook/map-anything-apache` revision `00f9c245bbcb60522d1ed7f9e9d88462c6e3f38a`. Exact cached revision checked against the public Hugging Face model metadata on 3 Nov. The separate research checkpoint has different terms. |
-| [gsplat](https://github.com/nerfstudio-project/gsplat) | Differentiable Gaussian rendering/densification | Apache 2.0; our orchestration, training loop and browser renderer were written here. |
-| [COLMAP / PyCOLMAP](https://github.com/colmap/colmap) | Optional classical reconstruction | BSD 3-Clause. |
-| [MediaPipe](https://github.com/google-ai-edge/mediapipe) | CPU hand landmarks | Apache 2.0 code; downloaded Hand Landmarker model retained outside Git. |
-| [EfficientDet-Lite0](https://www.kaggle.com/models/tensorflow/efficientdet) | Person-only detections | Apache 2.0 TensorFlow model; downloaded weights retained outside Git. |
-| [cuRobo](https://github.com/NVlabs/curobo) | Planned GPU motion integration | Apache 2.0; not connected to Deck. |
-| [LeRobot](https://github.com/huggingface/lerobot) | SO-101 terminal control | Apache 2.0; Deck never powers or moves hardware. |
-| [SO-101 URDF/meshes](https://github.com/TheRobotStudio/SO-ARM100) | Independent lime robot and MuJoCo sim | Apache 2.0; upstream licence and pinned source retained in `simulation/assets/so101/`. |
-| [SAM 3 / SAM 3.1](https://github.com/facebookresearch/sam3) | Segmentation/tracking | Meta **SAM License**, not Apache; gated `facebook/sam3.1` weights are not distributed here. |
-| [Meta Wearables DAT](https://github.com/meta/meta-wearables-dat-ios) | iPhone glasses registration/device status | Meta Wearables Developer Terms; pinned SDK 1.0.1 dependency, not vendored. Native build/device acceptance pending. |
-| [Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3) | Optional developer-tool depth preview | Apache 2.0 source; checkpoint terms depend on the selected variant. Not the main workspace reconstruction path. |
+| Component | Role and licence |
+| --- | --- |
+| [SAM 3.1 / SAM 3](https://github.com/facebookresearch/sam3) (Meta) | Local segmentation/tracking; custom **SAM License**. **Pathfinder acknowledges use of the SAM Materials.** No SAM weights distributed here. |
+| [MapAnything](https://github.com/facebookresearch/map-anything) (Meta) | Workspace geometry; Apache 2.0 source and separate `facebook/map-anything-apache` weights variant. Exact cached revision/checks: [licences](docs/licences.md). |
+| [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker) (Google) | Fast CPU hand gate; source Apache 2.0, model terms checked separately in the licence table. |
+| [EfficientDet-Lite0](https://www.kaggle.com/models/tensorflow/efficientdet) (Google) | Person boxes in browser RGB monitoring, distinct from SAM's Deck feed; model licence verification in the table. |
+| [gsplat](https://github.com/nerfstudio-project/gsplat) | Gaussian rendering/densification, Apache 2.0. |
+| [LeRobot](https://github.com/huggingface/lerobot) (Hugging Face) | SO-101 commissioning/hardware support, Apache 2.0; no Deck physical motion acceptance. |
+| [SO-101 URDF/meshes](https://github.com/TheRobotStudio/SO-ARM100) (community) | Simulation/visual robot, Apache 2.0; pinned source and upstream licence in `simulation/assets/so101/`. |
+| [cuRobo](https://github.com/NVlabs/curobo) (NVlabs) | Planned only: **NOT integrated**. Apache 2.0 upstream; our bounded route planner is separate. |
+| [MuJoCo](https://github.com/google-deepmind/mujoco) | Simulator, Apache 2.0. |
 
-Model weights, third-party source caches, original workspace photos, API keys and local calibration captures are excluded from these commits. See [dependency provenance](docs/dependency-provenance.md).
+See [the full model/library licence inventory](docs/licences.md) for supporting libraries, optional tools, Wearables SDK, fonts and attribution. Model weights/caches are excluded from Git; vendored robot assets and fonts retain upstream licences. [Checkpoint provenance](docs/dependency-provenance.md) records the 3 Nov cache check.
 
-## Safety
+## Meta tooling used, by name
 
-- Safety checks run locally and never depend on the network.
-- Slow as people approach, stop at minimum distance.
-- "Stop" bypasses everything.
-- The real arm is only ever powered with a person present and the 5V kill switch in reach.
+- **SAM 3.1**, local: workspace masks and slower live people/hand segmentation.
+- **MapAnything**, local: workspace geometry and camera estimates.
+- **Muse Spark 1.3**, API (`muse-spark-1.3`): interpretation/orchestration through five validated tools.
+- **Muse Voice Transcribe 1.0**, API (`muse-voice-transcribe-1.0`): spoken instructions.
+- **Meta glasses**: microphone via the iPhone app; Liam heard spoken replies in the glasses. Companion uses Meta Wearables DAT 1.0.1.
 
-The original fake workbench checks before simulated moves and gripper actions. The optional
-MuJoCo Runtime backend has simulator separation checks and supports the independent live
-hand watchdog; physical full-arm geometry and end-to-end bench acceptance remain pending. See the [code audit](docs/audit-2026-10-27.md) for remaining requirements.
+**Glimmer, Spark Open, Wonder, Image and V-JEPA 2 were NOT used.** Earlier plans are not completed integrations. Evidence: 4 Nov “SPOKEN commands…” and implementation log in [PROGRESS.md](PROGRESS.md); identifiers in [model access](docs/model-access.md).
 
-## Development
+## Run it yourself in five minutes with no keys or hardware
 
-```
-python -m venv .venv && . .venv/bin/activate
-pip install -e ".[dev]"
-pytest
-python -m lookandpick.demo
-```
-
-Keys go in `.env` (see `.env.example`); it is git-ignored.
-
-Install `pip install -e ".[dev,vision]"` to run calibration and OpenCV recording/replay tests.
-With only the `dev` extra, tests requiring vision dependencies skip automatically.
-
-The SAM 3.1 scripts need Meta's code, installed separately outside this repo, and a Hugging Face login with access to the gated weights; see `PROGRESS.md` for the working setup and its workarounds.
-
-## Mission control
+Needs Python 3.11+ with compatible MuJoCo wheels and working OpenGL/EGL; Python 3.14 was used here. Five minutes is an aim on an already suitable machine, not a measured fresh-install guarantee. From the repository root:
 
 ```sh
-.venv/bin/python -m lookandpick.mission_control
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[dev]'
+python3 -m venv simulation/.venv
+simulation/.venv/bin/python -m pip install -r simulation/requirements.txt
+python3 simulation/start.py
+.venv/bin/python -m lookandpick.mission_control --backend sim --model fake
 ```
 
-Open **http://127.0.0.1:8765** and click **play demo**. Uses the existing simulator and safety
-gate; no GPU, API key or frontend build needed. Webcam and local recording previews are
-available, with no detection applied. Robot actions use synthetic state; physical hardware is not connected.
+The final command is `python -m lookandpick.mission_control --backend sim --model fake` in the project environment. Open [Deck](http://127.0.0.1:8765); the [simulator bridge/workbench](http://127.0.0.1:8766) runs separately. Use the command panel for a simulated pick/place. `fake` is scripted, not a Meta call. No keys, cameras, model weights or physical arm needed; no live camera safety demonstration implied. EGL may use a GPU for rendering; this is not a CPU-only promise.
 
-For the MuJoCo Runtime and typed orchestrator commands, add `--backend sim --model fake` (or `--model spark` with your configured Meta key). Start `simulation/start.py` first. STOP remains available during a command. Deck also has a read-only arm panel, local CSV trace charts and a [static submission replay](replay/README.md).
-
-Choose **set up workspace** for local photo/video reconstruction with MapAnything,
-SAM 3.1 and gsplat, editable surfaces and a separate lime SO-101. Save and activate
-visual workspaces without changing physical calibration. The CAD editor also supports
-drawn and extruded voxel working areas with ArUco anchoring and local RGB people/hand
-monitoring. See [local workspace setup](docs/local-workspaces.md) and [voxel working areas](docs/voxel-working-area.md).
-
-See the [mission control guide](docs/mission-control.md) for controls, media formats and integration points.
-
-See [hand safety](docs/hand-safety.md) for optional MediaPipe setup and recorded-clip checks,
-and [SO-101 bring-up](docs/so101-bringup.md) for dry-run limits and Liam's bench checklist.
-
-## SAM Prompt example
+Core checks: `.venv/bin/python -m pytest`. All configured suites:
 
 ```sh
-.venv/bin/python -m lookandpick.sam_prompt
+scripts/test_all.sh
 ```
 
-Open **http://127.0.0.1:8767** in Chrome or Edge. Connect the webcam, allow camera
-access, select the external camera (e.g. Insta360), and record 3–10 seconds. Enter
-an object prompt and click **Identify in recorded clip**. SAM 3.1 processes the
-recorded clip locally, then plays the masks. Change the prompt to reuse the clip.
-**Export result** downloads a browser-compatible WebM; **Save original** downloads
-the untouched recording. Original WebM, annotated MP4, JPEG frames and inference
-logs are retained under `recordings/sam-prompt/<clip-id>/` (git-ignored).
-Presentation mode expands the result for filming. Recordings contain video only.
+The full script requires `workspace_splat/.venv` ([setup](workspace_splat/README.md)); it runs MuJoCo checks when `simulation/.venv` exists. **JavaScript tests need `node` on PATH.** Missing suites must not be counted as passed. This requires more setup than the minimal demo. Stop the SAM worker before tests/reconstruction if it holds the GPU lease. Current live commands/environment split: [demo guide](docs/demo-2026-11-04.md), [hand safety](docs/hand-safety.md), [iPhone](mobile/PathfinderGlasses/README.md), [launcher](docs/launcher.md). Keys belong in ignored `.env`, never Git.
 
-Requires the existing CUDA/SAM scratch environment at `~/src/sam3-venv` and cached
-SAM 3.1 weights. Override with `--python /path/to/python`; choose another port with
-`--port 8768`. Processing samples at 10 fps, up to 100 frames, at 640 px width; it
-is recorded-clip segmentation, not live inference. Allow up to a minute for a
-short clip, plus one playback duration to prepare the export. Keep the tab visible
-while processing/exporting. Run from the project checkout (the inference script
-is in `scripts/`). Clips stay on this machine; no external service is used.
+## Safety rules
+
+From [CLAUDE.md](CLAUDE.md):
+
+- Safety-critical checks run locally and never depend on the network.
+- Prefer speed-and-separation (slow as people approach, stop at minimum distance) over hard pauses.
+- “Stop” bypasses everything.
+- **Never command the real arm from a remote/unattended session.** Sim, replays and code are fine remotely; anything that powers the servos needs Liam physically present with the 5V kill switch in reach.
+
+## Known limits and honest gaps
+
+- No live Cartesian real-arm pipeline acceptance or certified safety claim. Physical full-arm geometry, stopping distances and camera-to-servo latency remain unverified.
+- SAM/MediaPipe disagreements have been observed but not resolved against ground truth. Cameras cannot certify empty 3D space; voxel freshness is not the watchdog. Only manual cubes are hard map rules in these simulated moves; unknown display cubes do not themselves gate them (4 Nov “no-go cubes enforced…”).
+- The planner checks the tip path, not full-arm clearance. A route around a hand helps only when the hand is clear of the whole arm; otherwise simulator link checks hold it until the hand leaves. Waiting then carrying on is the dependable shot (4 Nov motion tasks).
+- Marker black square confirmed 120 mm; checkerboard readings about 3% over nominal (15.4 × 15.7 mm versus 15 mm in the evening re-scan). Board print/scale offsets and off-marker accuracy remain caveats. Run-view marker-plane texture and visual foot/pan offsets are visual alignment fixes, not physical revalidation.
+- Phone-photo reconstruction worked; glasses video reconstruction and real-photo “this one” remain unverified. Recognition duplicated words; noisy-room and mid-clip disconnect acceptance remain pending.
+- Live grasp orientation on real cameras/objects, concave objects and physical wrist roll remain gaps. Four-view reconstruction can exhaust the 8 GB GPU; scan quality is not a safety certificate.
+
+Evidence: 4 Nov live camera, motion, grasp, spoken-glasses, re-scan and Run-view entries in [PROGRESS.md](PROGRESS.md).
+
+## Licence
+
+**No licence for Pathfinder's own code is present at the repository root. Liam needs to choose one before describing this as a licensed open-source release.** Public visibility alone does not grant reuse rights. Upstream licences apply to their materials and do not license this project's original code; see [licences and outstanding checks](docs/licences.md).
