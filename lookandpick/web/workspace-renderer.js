@@ -1,4 +1,4 @@
-import {runRobot,runItems,filmCamera,boxMesh,sphereMesh,ringMesh,modelAt,dashedRoute,remainingRoute} from './run-scene.js';
+import {runRobot,runItems,filmCamera,topViewUp,boxMesh,sphereMesh,ringMesh,modelAt,dashedRoute,remainingRoute} from './run-scene.js';
 import {JointEase} from './live-arm-view.js';
 import {GaussianViewer} from '/workspace-viewer.js';
 import {I,mul,point,direction,xyz,axisRotation,gaussianFrame,transformGaussians,rectangle,dot,transpose} from './workspace-math.js';
@@ -98,7 +98,7 @@ export class WorkspaceRenderer{
   }catch{if(this.generation===generation&&version===this.textureVersion){this.textureNote=this.runMode?'Plain wood tabletop · marker-plane texture unavailable':'Projected tabletop fallback · marker-plane texture unavailable';this.onAppearance?.(this.textureNote);}}
  }
  setRunMode(enabled){this.runMode=enabled;this.cubes.setEnabled(!enabled);this.cubes.runStyle=enabled;this.runPhoto=false;this.setMode('cad');if(enabled)this.filmView();this.cubes.updateLabel();this.cubes.label.hidden=enabled;}
- tableTopView(){if(!this.manifest)return;const t=this.manifest.surfaces.find(s=>s.name==='table'),s=this.manifest.calibration.meters_per_map_unit||1,target=[t.centre[0]*s,t.centre[1]*s,t.height*s];this.photo.target=target;this.photo.up=[0,1,0];this.photo.setLookAt([target[0],target[1],target[2]+Math.max(t.width,t.depth)*s*1.2],target);}
+ tableTopView(){if(!this.manifest)return;const t=this.manifest.surfaces.find(s=>s.name==='table'),s=this.manifest.calibration.meters_per_map_unit||1,target=[t.centre[0]*s,t.centre[1]*s,t.height*s];this.photo.target=target;this.photo.up=topViewUp(this.manifest);this.photo.setLookAt([target[0],target[1],target[2]+Math.max(t.width,t.depth)*s*1.2],target);}
  filmView(){if(!this.manifest)return;const view=filmCamera(this.manifest);this.photo.target=view.target;this.photo.up=[0,0,1];this.photo.setLookAt(view.eye,view.target);}
  // The same frame contract is used by live polling and a future replay player.
  renderFrame(frame){

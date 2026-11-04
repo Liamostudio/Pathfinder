@@ -16,7 +16,13 @@ export function runItems(frame,manifest){
  return {scale,tcp,objects:(frame?.scene?.objects||[]).filter(o=>finitePoint(o.position)).map(o=>({...o,position:o.held&&tcp?tcp:point(matrix,o.position),selected:o.id===frame.selected})),
  hands:(frame?.scene?.hands||[]).filter(h=>finitePoint(h.position)).map(h=>({...h,position:point(matrix,h.position),radius:Math.max(.015,Math.min(.3,Number.isFinite(h.radius_m)?h.radius_m:.04))*scale}))};
 }
-export function filmCamera(manifest){const table=manifest.surfaces.find(s=>s.name==='table'),s=manifest.calibration.meters_per_map_unit||1,target=[table.centre[0]*s,table.centre[1]*s,table.height*s+.02*s],span=Math.max(table.width,table.depth)*s;return {target,eye:target.map((v,i)=>v+[.65,-1.05,.86][i]*span)};}
+// The marker's axes in scene space (unit vectors). Views are defined in the MARKER frame (x right, y toward the wall, z up) because the scan's own
+// axes have no relation to the real table: with them the camera could sit behind the table and put the arm on the wrong side.
+export function markerAxes(manifest){const m=markerMatrix(manifest);if(!m)return null;const unit=i=>{const v=[m[0][i],m[1][i],m[2][i]],n=Math.hypot(...v)||1;return v.map(x=>x/n);};return {x:unit(0),y:unit(1),z:unit(2)};}
+// Film camera: the view from where Liam stands, on the marker's -y side looking toward the wall, slightly right of centre, 38 degrees up; marker +x (the arm side) is on the right.
+export function filmCamera(manifest){const table=manifest.surfaces.find(s=>s.name==='table'),s=manifest.calibration.meters_per_map_unit||1,target=[table.centre[0]*s,table.centre[1]*s,table.height*s+.02*s],span=Math.max(table.width,table.depth)*s,axes=markerAxes(manifest),local=[.25,-1,.8],n=Math.hypot(...local),dir=axes?[0,1,2].map(i=>(axes.x[i]*local[0]+axes.y[i]*local[1]+axes.z[i]*local[2])/n):[.65,-1.05,.86].map(v=>v/1.505);return {target,eye:target.map((v,i)=>v+dir[i]*span*1.505)};}
+// Straight-down table view: marker +y is up the screen, so marker +x is on the right (the arm on the right, the checkerboard on the left).
+export function topViewUp(manifest){const a=markerAxes(manifest);return a?a.y:[0,1,0];}
 export function captionView(frame,{stale=false}={}){
  const events=frame?.events||[],last=predicate=>[...events].reverse().find(predicate),source=e=>String(e.source||'').toLowerCase();
  const command=last(e=>(['meta glasses','muse voice transcribe','voice transcribe','command'].includes(source(e))&&e.status!=='error'&&e.output!=='(no speech)')||/muse spark|muse glimmer|scripted model/i.test(e.source)&&e.input);
