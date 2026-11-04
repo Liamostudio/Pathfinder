@@ -58,6 +58,11 @@ Make the Run view render from `render(frame)` so it can play a recorded take fro
 - No new reconstruction work. Plain JS modules like the rest of `lookandpick/web/`; no build step, no new dependency.
 - Do not change the active workspace or save a version on Liam's behalf. His current draft (robot yaw -6.18 degrees, pan -0.7308 rad, set through the API) is unsaved; v0003 is still active.
 
+## Workspace behaviour to know about (found 4 Nov evening)
+- Editing the table SURFACE in a draft clears its marker alignment (`repository.patch`: `draft['marker_alignment']=None`, robot status back to `illustrative`). That is by design, but it surprised Liam: dragging the table rectangle silently dropped his anchor and the measured placement. Tell the user in the UI ("Table edited: re-anchor the marker") instead of leaving the placement stale, and keep the order obvious: edit the table, THEN anchor, THEN use the measured base frame.
+- 'Use measured robot base frame' (`measured_placement`) overwrites the robot's translation and rotation, so any manual yaw is lost; the stored pan and foot offsets in P0.2 fix that.
+- While you work, do not change Liam's draft values through the API: the draft robot is `rotation [-0.98, -0.34, -6.18]`, `shoulder_pan -0.7308`, and its marker alignment is currently empty (Liam will re-anchor).
+
 ## Tests and acceptance
 JavaScript tests next to the existing ones (`tests/workspaces/*.test.mjs`): marker-frame to scene mapping, the pan draw offset and foot yaw, the caption picking the latest entries, the fallbacks. Python tests for the stored calibration fields and the texture extent in the marker frame (a synthetic photo through `rectify` into the table quad). Live check with Liam: before/after screenshots for P0.1, P0.2 and the default camera, then a pick-and-place filmed on screen with the caption strip.
 
