@@ -50,8 +50,9 @@ class MissionControl:
     def reset(self):
         with self._lock:
             self._revision += 1
-            self.tracker, self.arm, self.safety = FakeTracker(), SimArm(), Safety()
+            self.tracker, self.arm = FakeTracker(), SimArm(); self.safety = Safety.for_arm(self.arm)
             self.tools = Tools(WorldState(), self.tracker, self.arm, self.safety)
+            self.tools.waits_for_hands = False     # this scripted backend answers a button press at once; the live runtime waits
             self.selected = 'obj1'
             self.hand_mode = 'clear'
             self.started = time.monotonic()

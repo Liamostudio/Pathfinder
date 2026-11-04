@@ -191,7 +191,8 @@ def test_tool_refresh_preserves_monitored_hands():
     monitor.publish([Hand('h',(.25,.1,.02))],clock())
     tools = Tools(world,MonitoredTracker(FakeTracker(),monitor),arm,safety)
     assert tools.get_scene()['hands']
-    assert tools.pick('obj1').startswith('blocked')
+    from motion_helpers import waits_then_cancel
+    assert waits_then_cancel(tools, lambda: tools.pick('obj1')).startswith('blocked')
     assert not arm.gripping
 
 

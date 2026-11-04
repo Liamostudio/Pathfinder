@@ -47,6 +47,8 @@ TOOL_SCHEMAS = [
 ]
 
 STOP_WORDS = re.compile(r"^\W*(stop|halt|freeze|emergency stop|abort)\b", re.IGNORECASE)
+# "cancel" ends the current instruction and latches nothing; caught locally, like the stop word, with no model call.
+CANCEL_WORDS = re.compile(r"^\W*(cancel|never ?mind|forget it)\b", re.IGNORECASE)
 
 
 @dataclass
@@ -67,6 +69,10 @@ class Orchestrator:
         """Local, instant, never involves the model."""
         return self.tools.stop()
 
+    def cancel(self) -> str:
+        """Local, instant, never involves the model. Ends the current instruction; nothing latches."""
+        return self.tools.cancel()
+
     def run(self, command: str, image_jpeg: bytes | None = None) -> RunResult:
         """`image_jpeg` is an optional first-person view (the user's glasses) sent to the model beside the scene; it never reaches the tools."""
         result = RunResult(command)
@@ -78,6 +84,15 @@ class Orchestrator:
                                 (time.monotonic() - started) * 1000, status="blocked")
             result.reply = "stopped"
             return result
+        if CANCEL_WORDS.match(command):
+            started = time.monotonic()
+            result.steps.append({"name": "cancel", "args": {}, "result": self.cancel()})
+            if self.log is not None:
+                self.log.record("Safety", f"{command!r} (local cancel word, no model call)", "cancelled",
+                                (time.monotonic() - started) * 1000)
+            result.reply = "cancelled"
+            return result
+        self.tools.begin_instruction()
         text = f"Scene: {json.dumps(self.tools.get_scene())}\n\nRequest: {command}"
         user: object = text
         if image_jpeg:
@@ -89,6 +104,9 @@ class Orchestrator:
         for _ in range(self.max_steps):
             if self.tools.safety.stopped:  # after any stop, do not keep asking the model to try again
                 result.reply = result.reply or "stopped"
+                return result
+            if self.tools.cancelled:
+                result.reply = result.reply or "cancelled"
                 return result
             try:
                 reply = self.model.chat(messages, TOOL_SCHEMAS)
@@ -108,6 +126,9 @@ class Orchestrator:
                 messages.append({"role": "tool", "tool_call_id": call.id, "content": outcome})
             if self.tools.safety.stopped:
                 result.reply = result.reply or "stopped"
+                return result
+            if self.tools.cancelled:
+                result.reply = result.reply or "cancelled"
                 return result
             if all(c.name == "say" for c in reply.tool_calls):
                 result.reply = result.reply or reply.content  # nothing left to do: skip a round trip (~3 s, ~1 cent)

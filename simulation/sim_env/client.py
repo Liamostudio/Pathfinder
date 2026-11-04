@@ -8,12 +8,14 @@ from lookandpick.world import Hand, TrackedObject
 
 
 class SimulationClient:
-    def __init__(self, url='http://127.0.0.1:8766', *, command_timeout=30):
+    simulated = True
+
+    def __init__(self, url='http://127.0.0.1:8766', *, command_timeout=30, move_timeout=3600):
         parsed = urlsplit(url)
         if parsed.scheme != 'http' or parsed.hostname not in ('127.0.0.1', 'localhost') or parsed.username or parsed.password or parsed.path not in ('', '/'):
             raise ValueError('Simulation bridge must use loopback HTTP')
         self.url = url.rstrip('/')
-        self.command_timeout = command_timeout
+        self.command_timeout, self.move_timeout = command_timeout, move_timeout     # a move may wait out a hand; the sim times out a move that stalls
 
     def _get(self, path):
         with urllib.request.urlopen(self.url+path,timeout=3) as response:
@@ -39,7 +41,7 @@ class SimulationClient:
             job = json.load(response)
         if 'job_id' not in job:
             return job
-        deadline = time.monotonic() + self.command_timeout
+        deadline = time.monotonic() + (self.move_timeout if action in ('move', 'joints') else self.command_timeout)
         try:
             while time.monotonic() < deadline:
                 status = self._get('/api/jobs/'+job['job_id'])
@@ -62,6 +64,9 @@ class SimulationClient:
 
     def halt(self):
         self.action('stop')
+
+    def cancel(self):
+        self.action('cancel')
 
     def set_grasp_yaw(self, yaw_deg):
         self.action('grasp_yaw',yaw=yaw_deg)

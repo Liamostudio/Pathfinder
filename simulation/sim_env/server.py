@@ -38,6 +38,9 @@ class Session:
         if action == 'stop':
             self.sim.halt()
             return {'result':'stopped', 'state': self.state()}
+        if action == 'cancel':
+            self.sim.cancel()
+            return {'result':'cancelled'}
         if action == 'hand':
             self.sim.set_hand(payload.get('position'))
             return {'result':'hand updated'}

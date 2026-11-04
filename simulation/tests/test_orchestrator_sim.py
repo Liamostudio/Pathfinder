@@ -27,13 +27,40 @@ def test_scripted_model_picks_and_places_in_the_simulation(bridge):
     assert client.state()["held"] is None
 
 
-def test_hand_next_to_the_target_blocks_the_pick_and_the_model_is_told(bridge):
+def test_hand_next_to_the_target_holds_the_pick_until_it_leaves(bridge):
+    import threading
+    import time
     client, _ = bridge
     client.action("hand", position=[0.23, 0.14, 0.05])
-    llm = FakeLLM([ChatResult("", (call("pick", {"id": "obj1"}),)), ChatResult("blocked")])
-    out = Runtime(llm, client, log=CallLog(), say=lambda t: None).command("pick up the red cube")
-    assert out.steps[0]["result"].startswith("blocked") and client.state()["held"] is None
-    assert llm.requests[1]["messages"][-1]["content"].startswith("blocked")
+    llm = FakeLLM([ChatResult("", (call("pick", {"id": "obj1"}),)), ChatResult("Done.")])
+    said = []
+    runtime = Runtime(llm, client, log=CallLog(), say=said.append)
+    done = []
+    thread = threading.Thread(target=lambda: done.append(runtime.command("pick up the red cube")), daemon=True)
+    thread.start()
+    time.sleep(0.8)
+    assert thread.is_alive() and client.state()["held"] is None                 # waiting, not refused, and nothing moved
+    client.action("hand", position=None)                                        # the hand leaves
+    thread.join(60)
+    assert done and done[0].steps[0]["result"] == "picked red cube" and client.state()["held"] == "obj1"
+    assert said[:1] == ["Pausing: a hand is in the way"] and "Clear, carrying on" in said
+
+
+def test_a_hand_that_stays_can_be_cancelled_without_latching_the_simulation(bridge):
+    import threading
+    import time
+    client, _ = bridge
+    client.action("hand", position=[0.23, 0.14, 0.05])
+    llm = FakeLLM([ChatResult("", (call("pick", {"id": "obj1"}),)), ChatResult("never reached")])
+    runtime = Runtime(llm, client, log=CallLog(), say=lambda t: None)
+    done = []
+    thread = threading.Thread(target=lambda: done.append(runtime.command("pick up the red cube")), daemon=True)
+    thread.start()
+    time.sleep(0.5)
+    assert runtime.command("cancel").reply == "cancelled"
+    thread.join(10)
+    assert done and done[0].steps[0]["result"] == "blocked: cancelled"
+    assert client.state()["stopped"] is False and client.state()["held"] is None
 
 
 def test_stop_word_halts_the_simulation_without_the_model(bridge):

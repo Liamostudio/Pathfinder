@@ -200,15 +200,22 @@ def runtime_for(gate, script):
 PICK = [ChatResult("", (ToolCall("1", "pick", '{"id": "obj1"}'),)), ChatResult("Done.")]
 
 
-def test_with_a_hand_near_the_pick_is_refused_and_the_model_is_told(gate):
+def test_with_a_hand_near_the_pick_it_waits_and_goes_ahead_once_the_hand_leaves(gate):
     gate.start()
     assert wait_for(lambda: gate.status()["state"] == "clear")
     runtime, _ = runtime_for(gate, list(PICK))
     gate.detector.detections = [hand_at(0.05, 0.10)]
     assert wait_for(lambda: gate.status()["state"] == "stop")
-    result = runtime.command("pick up the red cube")
-    assert result.steps and "blocked" in result.steps[0]["result"]
-    assert gate.arm._arm.position == (0.0, 0.10, 0.05)                         # it did not move
+    done = []
+    thread = threading.Thread(target=lambda: done.append(runtime.command("pick up the red cube")), daemon=True)
+    thread.start()
+    time.sleep(0.5)
+    assert thread.is_alive() and gate.arm._arm.position == (0.0, 0.10, 0.05)          # waiting, and it did not move
+    gate.detector.detections = []                                                       # the hand leaves
+    thread.join(5)
+    assert done and done[0].steps[0]["result"] == "picked red cube"
+    assert "Pausing: a hand is in the way" in runtime.said and "Clear, carrying on" in runtime.said
+    assert not runtime.safety.stopped
 
 
 def test_with_clear_hands_the_pick_goes_ahead_and_status_is_available_from_the_runtime(gate):

@@ -24,10 +24,10 @@ from typing import Callable
 
 from .hand_safety import HandDetectionLoop
 from .live_hands import TimedMonitor
-from .safety import Safety, distance
+from .safety import NO_GATE_ID, Safety, distance
 from .world import Hand, Vec3, WorldState
 
-NO_GATE_HAND = Hand("hand-gate-not-running", (0.0, 0.0, 0.0), 10.0)       # fail closed: a hand everywhere
+NO_GATE_HAND = Hand(NO_GATE_ID, (0.0, 0.0, 0.0), 10.0)       # fail closed: a hand everywhere
 
 
 class TargetTrackingArm:
@@ -172,7 +172,7 @@ class HandGate:
         slows the arm; if ANY camera stalls, the watchdog latches a stop."""
         self.camera, self.make_detector, self.calibration = camera, make_detector, calibration
         self.extra_cameras = list(extra_cameras)
-        self.arm, self.safety = TargetTrackingArm(arm), safety or Safety()
+        self.arm, self.safety = TargetTrackingArm(arm), safety or Safety.for_arm(arm)
         self.hand_height, self.timeout_s, self.hz, self.warmup_s = hand_height, timeout_s, hz, warmup_s
         self.table_to_arm, self._clock = table_to_arm, clock
         self.monitor: GateMonitor | None = None

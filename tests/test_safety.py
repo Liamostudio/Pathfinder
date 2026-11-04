@@ -21,10 +21,11 @@ def test_pick_with_no_hands():
     assert arm.gripping
 
 
-def test_hand_near_target_blocks_motion():
+def test_hand_near_target_holds_the_motion_until_it_leaves():
+    from motion_helpers import waits_then_cancel
     tracker, arm, _, tools = make()
     tracker.set_hands([Hand("h", (0.25, 0.10, 0.02))])
-    assert tools.pick("obj1").startswith("blocked")
+    assert waits_then_cancel(tools, lambda: tools.pick("obj1")).startswith("blocked")      # it waited; only the cancel ended it
     assert not arm.gripping
 
 

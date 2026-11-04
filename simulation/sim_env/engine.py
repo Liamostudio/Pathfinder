@@ -17,6 +17,7 @@ from .model import JOINTS, OBJECTS, PROPS, ELONGATED, ARM_BASE_OFFSET, build_mod
 
 
 class Simulation:
+    simulated = True                 # the 10 cm stop distance applies to this arm (lookandpick.safety.Safety.for_arm)
     GRASP_TOLERANCE_DEG = 30.0       # how far the jaws may be from "across the pen" before the close misses (a sim rule, not physics)
 
     def __init__(self, *, realtime=True, pen=False, props=()):
@@ -29,7 +30,7 @@ class Simulation:
         self.lock = threading.RLock()
         self.command_lock = threading.Lock()
         self.shutdown = threading.Event()
-        self.safety = Safety()
+        self.safety = Safety.for_arm(self)
         self.world = WorldState()
         self.tools = Tools(self.world, self, self, self.safety)
         self.jids = np.array([self.model.joint(n).id for n in JOINTS])
@@ -113,6 +114,18 @@ class Simulation:
             self.speed_scale = self.effective_scale = 0
             self.reason = 'stop latched; reset required'
             self.event(self.reason)
+
+    def cancel(self):
+        """End the current move WITHOUT latching: the target is dropped and the arm holds where it is. A person's 'cancel', never a stop."""
+        with self.lock:
+            self.target = None
+            if not self.halted:
+                self.reason = 'cancelled'
+
+    def _paused(self):
+        """Held at zero speed by the hand check or the watchdog (not a fault): time spent like this does not count towards a move's timeout."""
+        return (not self.halted and not self.safety.stopped and 'arm_stall' not in self.faults
+                and (self.speed_scale <= 0 or self._safe_scale(self.data) <= 0))
 
     def set_speed_scale(self, scale):
         if not isinstance(scale, (int, float)) or not math.isfinite(scale) or not 0 <= scale <= 1:
@@ -330,10 +343,15 @@ class Simulation:
                 self.reason = 'moving'
             clock = time.monotonic if self.realtime else lambda: float(self.data.time)
             deadline = clock() + timeout
+            last = clock()
             while clock() < deadline and not self.shutdown.is_set():
                 with self.lock:
                     if self.halted or self.safety.stopped or self.target is None:
                         return False
+                    now = clock()
+                    if self._paused():            # waiting for a hand to move away is not a stalled move
+                        deadline += now - last
+                    last = now
                     if np.max(np.abs(self.data.qpos[self.qids] - values)) < 0.003:
                         self.target = None
                         self.reason = 'ready'

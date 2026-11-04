@@ -63,7 +63,8 @@ def test_retreat_block_reports_partial_pick_and_keeps_held_state():
         return result
 
     arm.grip = grip_then_hand_appears
-    assert tools.pick('obj1').startswith('blocked')
+    from motion_helpers import waits_then_cancel
+    assert waits_then_cancel(tools, lambda: tools.pick('obj1')).startswith('blocked: holding')       # waits at the retreat; cancel ends it
     assert arm.gripping
     assert next(o for o in tools.world.snapshot()['objects'] if o['id'] == 'obj1')['held']
 
@@ -79,7 +80,8 @@ def test_retreat_block_reports_partial_place_and_released_state():
         return result
 
     arm.grip = release_then_hand_appears
-    assert tools.place('obj1', (0.2, -0.1, 0)).startswith('blocked')
+    from motion_helpers import waits_then_cancel
+    assert waits_then_cancel(tools, lambda: tools.place('obj1', (0.2, -0.1, 0))).startswith('blocked: released')
     assert not arm.gripping
     assert not any(o['held'] for o in tools.world.snapshot()['objects'])
 

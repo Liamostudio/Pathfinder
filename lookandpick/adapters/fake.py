@@ -26,6 +26,8 @@ class FakeTracker:
 
 
 class SimArm:
+    simulated = True
+
     def __init__(self, start: Vec3 = (0.0, 0.0, 0.2)) -> None:
         self.position = start
         self._lock = threading.RLock()
@@ -58,6 +60,10 @@ class SimArm:
             self.gripping = closed
             self.log.append(("grip", closed))
             return True
+
+    def cancel(self) -> None:
+        with self._lock:
+            self.log.append(("cancel", None))
 
     def halt(self) -> None:
         with self._lock:

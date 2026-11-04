@@ -37,12 +37,20 @@ class Runtime:
         self.arm, self.tracker, self.scene = arm, tracker or arm, scene   # `scene.refresh()` looks at the table before each command
         self.gate = gate                                                  # a HandGate: the live hand loop; pass its `arm`, `tracker` and `safety` too
         self.log = log or getattr(model, "log", None) or CallLog()
-        self.safety = safety or Safety()
+        self.safety = safety or Safety.for_arm(arm)
         self.said: list[str] = []
         self._say = say
-        self.tools = Tools(WorldState(), self.tracker, self.arm, self.safety, say=self._speak)
+        self.tools = Tools(WorldState(), self.tracker, self.arm, self.safety, say=self._speak, announce=self._announce)
         self.model = model
         self.orchestrator = Orchestrator(model, self.tools, log=self.log)
+
+    def _announce(self, text: str) -> None:
+        """A fixed local phrase from the arm ('Pausing: a hand is in the way'): spoken, and on the timeline so Deck shows it. No model call."""
+        self.log.record("Arm", "status", text, 0)
+        self._speak(text)
+
+    def cancel(self) -> str:
+        return self.orchestrator.cancel()
 
     def _speak(self, text: str) -> None:
         self.said.append(text)

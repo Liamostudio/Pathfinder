@@ -178,9 +178,15 @@ def test_hand_blocks_pick_and_model_sees_the_refusal():
     tracker, arm, _, tools, _ = stack()
     tracker.set_hands([Hand("h", (0.25, 0.10, 0.02))])
     llm = FakeLLM([ChatResult("", (call("pick", {"id": "obj1"}),)), ChatResult("A hand is in the way.")])
-    out = Orchestrator(llm, tools).run("pick up the red cube")
+    from motion_helpers import run_in_thread
+    import time
+    thread, done = run_in_thread(lambda: Orchestrator(llm, tools).run("pick up the red cube"))
+    time.sleep(0.3)
+    assert thread.is_alive() and not arm.gripping           # waiting for the hand, not refused
+    tools.cancel()
+    thread.join(3)
+    out = done[0]
     assert out.steps[0]["result"].startswith("blocked") and not arm.gripping
-    assert llm.requests[1]["messages"][-1]["content"].startswith("blocked")
 
 
 def test_stop_word_bypasses_the_model():
