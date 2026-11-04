@@ -52,7 +52,7 @@ export class WorkspaceRenderer{
   const values=[];for(let i=0;i<objects.points.length;i++)values.push(...objects.points[i],...objects.colors[i],0,0,1);this.observed=this.buffer(new Float32Array(values),this.gl.POINTS);this.description=description;
   const assets=await Promise.all(description.visuals.map(async visual=>({visual,raw:await request('/api/robot-assets/'+visual.file).then(r=>r.arrayBuffer())})));
   if(generation!==this.generation)return null;
-  this.robot=assets.map(({visual,raw})=>({...visual,geometry:this.buffer(stl(raw,visual.color))}));this.update(manifest);this.photo.capturedView(Math.min(2,scene.cameras.length-1));return scene;
+  this.robot=assets.map(({visual,raw})=>({...visual,geometry:this.buffer(stl(raw,visual.color))}));this.update(manifest);this.photo.capturedView(Math.min(2,scene.cameras.length-1));this.tableTopView();return scene;   // open straight down, marker +x to the right, not through an oblique source photo
  }
  update(manifest,{easeJoints=false}={}){
   const now=performance.now(),from=this.jointEase?.value(now)||this.manifest?.robot?.joint_positions||manifest.robot.joint_positions;
