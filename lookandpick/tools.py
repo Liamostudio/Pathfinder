@@ -67,6 +67,13 @@ class Tools:
             return False
         return self.arm.grip(closed) is True
 
+    def _aim_gripper(self, yaw_deg: float | None) -> None:
+        """Hand a measured grasp yaw to an arm that can take one; always sets it so a stale yaw never carries to the next pick.
+        Arms without `set_grasp_yaw` pick as before. This is not a safety input: every move still goes through `_move`."""
+        setter = getattr(self.arm, 'set_grasp_yaw', None)
+        if callable(setter):
+            setter(yaw_deg)
+
     def get_scene(self) -> dict:
         self._refresh()
         return self.world.snapshot()
@@ -87,6 +94,7 @@ class Tools:
         if not valid_position(target):
             return "blocked: invalid target coordinates"
         above = (target[0], target[1], target[2] + HOVER_M)
+        self._aim_gripper(obj.get('grasp_yaw_deg'))
         if not (self._move(above) and self._move(target) and self._grip(True)):
             return f"blocked: {self._block_reason or 'safety gate or arm refused the action'}"
         self.world.set_held(TrackedObject(**obj), True, self.arm.position)

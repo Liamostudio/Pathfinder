@@ -23,6 +23,7 @@ Project-authored work started on **26 October 2026**, straight after the kickoff
 - ArUco-anchored voxel volumes, faint animated cubes, row/single-cell editing and configurable grid fidelity
 - Splat Studio developer tool and local SAM recorded-clip prompt UI
 - Meta Adventurer/iPhone companion source, authenticated HTTPS relay and reviewed voice/photo jobs into the simulator; [setup and native acceptance still needed](mobile/PathfinderGlasses/README.md)
+- Grasp orientation from fused SAM masks: size and long-axis yaw of an object from two or three calibrated cameras (`lookandpick/object_geometry.py`, synthetic-view tested; not yet on real cameras or wired into the live tracker; [plan](docs/grasp-orientation-plan.md))
 
 ## Open source we build on
 

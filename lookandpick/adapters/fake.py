@@ -32,7 +32,13 @@ class SimArm:
         self.gripping = False
         self.halted = False
         self.speed_scale = 1.0
+        self.grasp_yaw_deg: float | None = None
         self.log: list[tuple[str, object]] = []
+
+    def set_grasp_yaw(self, yaw_deg: float | None) -> None:
+        with self._lock:
+            self.grasp_yaw_deg = yaw_deg
+            self.log.append(("grasp_yaw", yaw_deg))
 
     def move_to(self, target: Vec3, speed_scale: float) -> bool:
         with self._lock:

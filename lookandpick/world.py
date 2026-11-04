@@ -5,6 +5,7 @@ import threading
 from dataclasses import dataclass, field, replace
 
 Vec3 = tuple[float, float, float]  # metres, arm-base frame (set by the ArUco calibration)
+OPTIONAL_OBJECT_FIELDS = ("grasp_yaw_deg", "size_m")  # left out of the scene dict until measured, so unmeasured objects look as before
 
 
 @dataclass
@@ -13,6 +14,8 @@ class TrackedObject:
     label: str
     position: Vec3
     held: bool = False
+    grasp_yaw_deg: float | None = None                     # gripper yaw in the marker frame; None = any yaw will do (a cube)
+    size_m: tuple[float, float, float] | None = None       # measured length, width, height (upper bounds); None = not measured
 
 
 @dataclass
@@ -54,7 +57,8 @@ class WorldState:
     def snapshot(self) -> dict:
         with self._lock:
             return {
-                "objects": [vars(o).copy() for o in self.objects.values()],
+                "objects": [{k: v for k, v in vars(o).items() if v is not None or k not in OPTIONAL_OBJECT_FIELDS}
+                            for o in self.objects.values()],
                 "hands": [vars(h).copy() for h in self.hands],
                 "arm_position": self.arm_position,
             }
