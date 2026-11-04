@@ -3,8 +3,9 @@
   PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True ~/src/sam3-venv/bin/python scripts/sam_worker.py            # serve on 127.0.0.1:8767
   PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True ~/src/sam3-venv/bin/python scripts/sam_worker.py --selftest ~/src/sam3/assets/images/groceries.jpg --prompt banana
 
-  POST /segment  {"image_b64": <jpeg>, "prompt": "red cube", "max_objects": 5}
-                 -> {"detections": [{"score","box","centroid","bottom","area"}], "image": {"width","height"}, "latency_ms"}
+  POST /segment  {"image_b64": <jpeg>, "prompt": "red cube", "max_objects": 5, "points": 0}
+                 -> {"detections": [{"score","box","centroid","bottom","area", "points": [[x, y], ...] (only if "points" > 0, at most 400)}],
+                     "image": {"width","height"}, "latency_ms"}
   GET  /health   -> {"ok": true, "loaded": bool, "model": "sam3.1"}
 
 A still frame is a one-frame session for SAM's predictor (the API scripts/sam3_live.py uses for video); the detections are add_prompt's answer.
@@ -86,11 +87,12 @@ class SamModel:
         return outputs, (width, height)
 
 
-def run_segment(model, masks_module, jpeg: bytes, prompt: str, max_objects: int) -> dict:
+def run_segment(model, masks_module, jpeg: bytes, prompt: str, max_objects: int, points: int = 0) -> dict:
     started = time.perf_counter()
     outputs, size = model.segment(jpeg, prompt, max_objects)
-    found = masks_module.detections_from_outputs(outputs, size)[:max_objects]
-    return {"detections": [{"score": d.score, "box": list(d.box), "centroid": list(d.centroid), "bottom": list(d.bottom), "area": d.area} for d in found],
+    found = masks_module.detections_from_outputs(outputs, size, sample_points=points)[:max_objects]
+    return {"detections": [{"score": d.score, "box": list(d.box), "centroid": list(d.centroid), "bottom": list(d.bottom), "area": d.area,
+                            **({"points": [list(p) for p in d.points]} if points else {})} for d in found],
             "image": {"width": size[0], "height": size[1]}, "latency_ms": round((time.perf_counter() - started) * 1000)}
 
 
@@ -133,7 +135,8 @@ def make_handler(model, masks_module):
                     return self._send(400, {"error": "prompt must be 1 to 80 characters"})
                 jpeg = base64.b64decode(body["image_b64"], validate=True)
                 limit = max(1, min(10, int(body.get("max_objects", 5))))
-                self._send(200, run_segment(model, masks_module, jpeg, prompt, limit))
+                sample = max(0, min(400, int(body.get("points", 0))))
+                self._send(200, run_segment(model, masks_module, jpeg, prompt, limit, sample))
             except (KeyError, ValueError, TypeError, json.JSONDecodeError):
                 self._send(400, {"error": "bad request"})
             except Exception as exc:                                      # a model failure must not kill the server

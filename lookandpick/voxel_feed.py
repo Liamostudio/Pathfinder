@@ -79,15 +79,21 @@ class VoxelFeed:
                 "sent": self.sent, "errors": self.errors, "last_error": self.last_error, "last_ok": self.last_ok}
 
 
-def for_workspaces(areas, hands: Callable[[], list[Hand]], **kwargs) -> VoxelFeed:
-    """A feed that targets the ACTIVE workspace of a `workspaces.areas.WorkAreas` (the one saved and activated in Deck)."""
+def workspace_target(areas):
+    """(current, observe) for the ACTIVE workspace of a `workspaces.areas.WorkAreas`: the one saved and activated in Deck."""
     def current():
         active = areas.service.repo.active()
         if not active or not active.get("working_area") or not (active.get("working_area") or {}).get("enabled"):
             return None
         mapping, anchor = areas.occupancy(active["id"])
         return (active["id"], mapping.revision, anchor["id"]) if anchor else None
-    return VoxelFeed(current, areas.observe, hands, **kwargs)
+    return current, areas.observe
+
+
+def for_workspaces(areas, hands: Callable[[], list[Hand]], **kwargs) -> VoxelFeed:
+    """A feed that targets the active workspace of a `WorkAreas`."""
+    current, observe = workspace_target(areas)
+    return VoxelFeed(current, observe, hands, **kwargs)
 
 
 def gate_hands(gate) -> Callable[[], list[Hand]]:

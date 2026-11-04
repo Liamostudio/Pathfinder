@@ -30,8 +30,10 @@ def _one_action(method):
 
 class Tools:
     def __init__(self, world: WorldState, tracker: Tracker, arm: Arm, safety: Safety,
-                 say: Callable[[str], None] = print) -> None:
+                 say: Callable[[str], None] = print, zones=None) -> None:
         self.world, self.tracker, self.arm, self.safety, self._say = world, tracker, arm, safety, say
+        self.zones = zones                      # an optional ManualZoneGuard: hard no-go cubes drawn by a person
+        self._block_reason: str | None = None
         self._action_lock = threading.Lock()
 
     def _refresh(self) -> None:
@@ -47,6 +49,11 @@ class Tools:
             return False
         if self.safety.stopped:
             return False
+        if self.zones is not None:
+            reason = self.zones.violation(self.arm.position, target)
+            if reason:
+                self._block_reason = reason
+                return False
         completed = self.arm.move_to(target, scale) is True
         self.world.update(arm_position=self.arm.position)
         return completed
@@ -66,6 +73,7 @@ class Tools:
 
     @_one_action
     def pick(self, id: str) -> str:
+        self._block_reason = None
         if self.safety.stopped:
             return "blocked: stopped"
         self._refresh()
@@ -80,7 +88,7 @@ class Tools:
             return "blocked: invalid target coordinates"
         above = (target[0], target[1], target[2] + HOVER_M)
         if not (self._move(above) and self._move(target) and self._grip(True)):
-            return "blocked: safety gate or arm refused the action"
+            return f"blocked: {self._block_reason or 'safety gate or arm refused the action'}"
         self.world.set_held(TrackedObject(**obj), True, self.arm.position)
         if not self._move(above):
             return f"blocked: holding {obj['label']}; retreat incomplete"
@@ -88,6 +96,7 @@ class Tools:
 
     @_one_action
     def place(self, id: str, loc: Vec3) -> str:
+        self._block_reason = None
         if self.safety.stopped:
             return "blocked: stopped"
         self._refresh()
@@ -98,7 +107,7 @@ class Tools:
             return "blocked: invalid target coordinates"
         above = (loc[0], loc[1], loc[2] + HOVER_M)
         if not (self._move(above) and self._move(loc) and self._grip(False)):
-            return "blocked: safety gate or arm refused the action"
+            return f"blocked: {self._block_reason or 'safety gate or arm refused the action'}"
         self.world.set_held(TrackedObject(**obj), False, self.arm.position)
         if not self._move(above):
             return f"blocked: released {obj['label']}; retreat incomplete"

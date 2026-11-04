@@ -275,6 +275,7 @@ def main():
     parser.add_argument('--hand-gate',type=int,metavar='CAM',help='Explicitly start a real camera hand gate controlling the SIMULATED arm')
     parser.add_argument('--intrinsics',help='Lens calibration for --hand-gate')
     parser.add_argument('--hand-gate-status-url',help='External loopback status server; display only')
+    parser.add_argument('--sam-people',action='store_true',help='With --hand-gate: also segment people and hands with SAM 3.1 (needs scripts/sam_worker.py running) into the voxel map; slow, advisory')
     args = parser.parse_args()
     from .workspaces.service import WorkspaceService
     if args.backend=='sim':
@@ -282,12 +283,23 @@ def main():
         session=create_session(args.model,args.sim_url,hand_camera=args.hand_gate,intrinsics=args.intrinsics,status_url=args.hand_gate_status_url)
     else: session=MissionControl()
     workspaces=WorkspaceService(args.workspace_data)
-    feed=None
+    runtime=getattr(session,'runtime',None)
+    if runtime is not None and hasattr(runtime,'tools'):
+        # The no-go cubes a person draws in the active workspace are hard rules for the (simulated) arm's moves.
+        from .zones import from_areas
+        runtime.tools.zones=from_areas(workspaces.areas)
+    feed=sam_feed=None
     gate=getattr(getattr(session,'runtime',None),'gate',None)
     if gate is not None:
         # The safety camera's hands, shown live in the active workspace's voxel map. Read-only and isolated from the gate (advisory display).
         from .voxel_feed import for_workspaces, gate_hands
         feed=for_workspaces(workspaces.areas,gate_hands(gate));feed.start()
+        if args.sam_people:
+            from .adapters.sam_client import SamClient
+            from .sam_people import SamPeopleFeed
+            from .voxel_feed import workspace_target
+            current,observe=workspace_target(workspaces.areas)
+            sam_feed=SamPeopleFeed(current,observe,lambda:(gate.camera.latest() or (None,None))[1],SamClient(timeout_s=20),gate.calibration);sam_feed.start()
     server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(session,workspaces))
     print(f'Mission control: http://127.0.0.1:{server.server_port} (simulation only)' + (' with live hands in the voxel map' if feed else ''), flush=True)
     try:
@@ -297,6 +309,7 @@ def main():
     finally:
         server.server_close()
         if feed: feed.close()
+        if sam_feed: sam_feed.close()
         if hasattr(session,'close'): session.close()
         session.telemetry.disconnect()
 

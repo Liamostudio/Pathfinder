@@ -40,10 +40,15 @@ class SamClient:
     def health(self) -> dict:
         return self._call("/health")
 
-    def segment(self, jpeg: bytes, prompt: str, max_objects: int = 5) -> list[Detection]:
-        reply = self._call("/segment", {"image_b64": base64.b64encode(jpeg).decode(), "prompt": prompt, "max_objects": max_objects})
+    def segment(self, jpeg: bytes, prompt: str, max_objects: int = 5, points: int = 0) -> list[Detection]:
+        """`points` > 0 asks for that many sampled mask pixels per detection (for projecting a footprint)."""
+        body = {"image_b64": base64.b64encode(jpeg).decode(), "prompt": prompt, "max_objects": max_objects}
+        if points:
+            body["points"] = points
+        reply = self._call("/segment", body)
         try:
             return [Detection(float(d["score"]), tuple(float(v) for v in d["box"]), tuple(float(v) for v in d["centroid"]),
-                              tuple(float(v) for v in d["bottom"]), int(d["area"])) for d in reply["detections"]]
+                              tuple(float(v) for v in d["bottom"]), int(d["area"]),
+                              tuple((float(x), float(y)) for x, y in d.get("points", ()))) for d in reply["detections"]]
         except (KeyError, TypeError, ValueError):
             raise SamWorkerError("SAM worker sent detections in an unexpected shape") from None
