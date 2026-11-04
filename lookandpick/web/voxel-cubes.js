@@ -1,3 +1,4 @@
+import {voxelStyle,filterActive,allVoxelClasses} from './voxel-display.js';
 import {gridShape,cellCentre,cellCoordinates,scaledCorners,EDGE_PAIRS,edgeAxis,pickVoxel,springStep,sliceIndices,sliceVisible} from './workspace-voxels.js';
 
 const vs=`#version 300 es
@@ -18,7 +19,7 @@ const corners=[[-.5,-.5,-.5],[.5,-.5,-.5],[.5,.5,-.5],[-.5,.5,-.5],[-.5,-.5,.5],
 
 export class VoxelCubes{
  constructor(renderer){
-  this.renderer=renderer;this.gl=renderer.gl;this.mode='monitor';this.hover=null;this.stage='vertex';this.vertex=null;this.axis=null;this.row=[];this.reveal=0;this.enabled=true;this.reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;this.velocity=[];this.pending=Promise.resolve();this.listeners=[];
+  this.displayFilter=allVoxelClasses();this.renderer=renderer;this.gl=renderer.gl;this.mode='monitor';this.hover=null;this.stage='vertex';this.vertex=null;this.axis=null;this.row=[];this.reveal=0;this.enabled=true;this.reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;this.velocity=[];this.pending=Promise.resolve();this.listeners=[];
   const gl=this.gl,compile=(type,text)=>{const s=gl.createShader(type);gl.shaderSource(s,text);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(s));return s;};
   const a=compile(gl.VERTEX_SHADER,vs),b=compile(gl.FRAGMENT_SHADER,fs);this.program=gl.createProgram();gl.attachShader(this.program,a);gl.attachShader(this.program,b);gl.linkProgram(this.program);gl.deleteShader(a);gl.deleteShader(b);if(!gl.getProgramParameter(this.program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(this.program));
   this.uniforms=Object.fromEntries(['cameraRotation','translation','intrinsics','viewport','yaw','cellSize','edges'].map(k=>[k,gl.getUniformLocation(this.program,k)]));
@@ -36,7 +37,7 @@ export class VoxelCubes{
  listen(target,name,fn,options){target.addEventListener(name,fn,options);this.listeners.push(()=>target.removeEventListener(name,fn,options));}
  attach(){
   const canvas=this.renderer.cad;
-  this.listen(canvas,'pointermove',e=>{if(!this.area?.enabled||!this.enabled||(e.buttons&&!['slice','cells'].includes(this.stage)))return;const r=canvas.getBoundingClientRect();this.pointer=[e.clientX-r.left,e.clientY-r.top];if(this.stage==='slice')this.moveSlice(e);const ray=this.renderer.canvasRay(...this.pointer);if(!ray)return;const hit=pickVoxel(this.area,ray.origin.map(v=>v/this.scale),ray.direction,this.sizes,this.hover,['slice','cells'].includes(this.stage)?new Set(this.row):null);this.setHover(hit?.index??null);});
+  this.listen(canvas,'pointermove',e=>{if(!this.area?.enabled||!this.enabled||filterActive(this.displayFilter,this.mode)||(e.buttons&&!['slice','cells'].includes(this.stage)))return;const r=canvas.getBoundingClientRect();this.pointer=[e.clientX-r.left,e.clientY-r.top];if(this.stage==='slice')this.moveSlice(e);const ray=this.renderer.canvasRay(...this.pointer);if(!ray)return;const hit=pickVoxel(this.area,ray.origin.map(v=>v/this.scale),ray.direction,this.sizes,this.hover,['slice','cells'].includes(this.stage)?new Set(this.row):null);this.setHover(hit?.index??null);});
   this.listen(canvas,'pointerleave',e=>{if(canvas.parentElement.contains(e.relatedTarget))return;if(!this.vertex)this.setHover(null);});
   this.listen(canvas,'dblclick',e=>this.toggleAt(e),true);
   this.listen(canvas,'pointerdown',e=>{if(e.button===0&&['slice','cells'].includes(this.stage)&&this.enabled){e.preventDefault();e.stopImmediatePropagation();if(this.stage==='slice'){this.stage='cells';this.single=null;this.svgKey=null;this.emit();}else{this.single=this.hover;this.emit();}return;}if(e.button===2&&this.stage!=='vertex'&&this.enabled){e.preventDefault();e.stopImmediatePropagation();this.back();}},true);
@@ -46,7 +47,7 @@ export class VoxelCubes{
   this.listen(this.svg,'keydown',e=>{if(['Enter',' '].includes(e.key)&&e.target.dataset.axis!==undefined){e.preventDefault();this.selectAxis(Number(e.target.dataset.axis));}});
   this.listen(this.svg,'dblclick',e=>this.toggleAt(e));
  }
- toggleAt(e){if(!this.area?.enabled||!this.enabled)return;clearTimeout(this.clickTimer);const r=this.renderer.cad.getBoundingClientRect(),ray=this.renderer.canvasRay(e.clientX-r.left,e.clientY-r.top);if(!ray)return;const hit=pickVoxel(this.area,ray.origin.map(v=>v/this.scale),ray.direction,this.sizes,this.hover,['slice','cells'].includes(this.stage)?new Set(this.row):null),index=hit?.index??(e.target.dataset.corner!==undefined?Number(e.target.dataset.index):null);if(index===null)return;e.preventDefault();e.stopImmediatePropagation();if(!['slice','cells'].includes(this.stage)){this.vertex=null;this.row=[];this.axis=null;this.stage='vertex';}this.single=index;this.setHover(index);this.setMode('edit');this.edit([index],null);}
+ toggleAt(e){if(!this.area?.enabled||!this.enabled||filterActive(this.displayFilter,this.mode))return;clearTimeout(this.clickTimer);const r=this.renderer.cad.getBoundingClientRect(),ray=this.renderer.canvasRay(e.clientX-r.left,e.clientY-r.top);if(!ray)return;const hit=pickVoxel(this.area,ray.origin.map(v=>v/this.scale),ray.direction,this.sizes,this.hover,['slice','cells'].includes(this.stage)?new Set(this.row):null),index=hit?.index??(e.target.dataset.corner!==undefined?Number(e.target.dataset.index):null);if(index===null)return;e.preventDefault();e.stopImmediatePropagation();if(!['slice','cells'].includes(this.stage)){this.vertex=null;this.row=[];this.axis=null;this.stage='vertex';}this.single=index;this.setHover(index);this.setMode('edit');this.edit([index],null);}
  selectAxis(axis,e){if(this.stage==='cells')return;if(this.stage==='slice'){this.stage='cells';this.single=null;this.emit();return;}this.axis=axis;this.stage='slice';this.layer=cellCoordinates(this.area,this.vertex.index)[axis];this.sliceOrigin=e?[e.clientX,e.clientY]:null;this.sliceStart=this.layer;this.setSlice(this.layer);this.svgKey=null;}
  setSlice(layer){this.single=null;const max=gridShape(this.area)[this.axis]-1;this.layer=Math.max(0,Math.min(max,Math.round(layer)));this.row=sliceIndices(this.area,this.axis,this.layer);this.controls.querySelector('input').max=max;this.controls.querySelector('input').value=this.layer;this.controls.querySelector('span').textContent=`${'XYZ'[this.axis]} · slice ${this.layer+1} / ${max+1}`;this.svgKey=null;this.emit();}
  moveSlice(e){
@@ -58,6 +59,7 @@ export class VoxelCubes{
   const distance=((e.clientX-this.sliceOrigin[0])*dx+(e.clientY-this.sliceOrigin[1])*dy)/length,layer=this.sliceStart+Math.round(distance/Math.max(14,length));if(layer!==this.layer)this.setSlice(layer);
  }
  setHover(index){if(index!==this.hover){this.hover=index;this.svgKey=null;this.emit();}}
+ setDisplayFilter(filter){this.displayFilter={...filter};this.back(true);this.renderer.onVoxelFilter?.();}
  setMode(mode){this.mode=mode;this.renderer.onVoxelMode?.(mode);this.emit();}
  setEnabled(enabled){this.enabled=enabled;if(!enabled){this.hover=null;this.back(true);}this.svg.style.display=enabled?'':'none';this.controls.hidden=!enabled||!['slice','cells'].includes(this.stage);}
  setArea(area,alignment,snapshot){
@@ -75,7 +77,7 @@ export class VoxelCubes{
  clearManual(){const action=this.renderer.onVoxelClear;if(!action)return Promise.resolve();this.back(true);return this.queueEdit(action);}
  canonicalCorners(index){return scaledCorners(this.area,index,this.sizes[index]||.44);}
  drawHandles(){
-  this.updateLabel();const r=this.renderer;this.controls.hidden=!['slice','cells'].includes(this.stage)||!this.area?.enabled||!this.enabled||r.mode!=='cad';const frozen=this.stage==='cells';this.controls.querySelector('input').disabled=frozen;for(const button of [...this.controls.querySelectorAll('button')].slice(0,2))button.disabled=frozen;if(!this.area?.enabled||!this.enabled||r.mode!=='cad'){this.svg.replaceChildren();this.svgKey=null;return;}
+  this.updateLabel();const r=this.renderer;this.controls.hidden=!['slice','cells'].includes(this.stage)||!this.area?.enabled||!this.enabled||r.mode!=='cad';const frozen=this.stage==='cells';this.controls.querySelector('input').disabled=frozen;for(const button of [...this.controls.querySelectorAll('button')].slice(0,2))button.disabled=frozen;if(!this.area?.enabled||!this.enabled||filterActive(this.displayFilter,this.mode)||r.mode!=='cad'){this.svg.replaceChildren();this.svgKey=null;return;}
   const index=this.vertex?.index??this.hover??this.single;if(index===null||index===undefined){this.svg.replaceChildren();this.svgKey=null;return;}
   const key=[this.stage,index,this.vertex?.corner,this.axis].join('/');if(key!==this.svgKey){this.svgKey=key;this.svg.replaceChildren();
    if(this.stage==='vertex')for(let i=0;i<8;i++){const circle=svgNode('circle',{'r':7,'class':'voxel-vertex','data-corner':i,'data-index':index,'aria-label':`Voxel ${index} vertex ${i+1}`});this.svg.append(circle);}
@@ -92,10 +94,10 @@ export class VoxelCubes{
   if(camKey!==this.cameraKey){this.cameraKey=camKey;this.order=Array.from({length:this.count},(_,i)=>i).sort((a,b)=>{const z=p=>camera.rotation[2].reduce((s,x,i)=>s+x*p[i]*this.scale,camera.translation[2]);return z(this.centres[b])-z(this.centres[a]);});}
   for(let slot=0;slot<this.count;slot++){
    const index=this.order[slot],centre=this.centres[index],d=focus?Math.hypot(...centre.map((v,i)=>(v-focus[i])/this.area.cell_size)):100,near=Math.exp(-d*d/3.5),reveal=Math.max(this.reveal,this.reduced?0:Math.max(0,1-Math.max(0,time-(this.cameraRevealUntil||0))/400)),chosen=selected.has(index)||index===this.single,target=.44+.44*Math.max(near,reveal,chosen?.8:0);[this.sizes[index],this.velocity[index]]=springStep(this.sizes[index],this.velocity[index],target,dt,this.reduced);
-   const observed=this.observed?.[index]||'unknown',blocked=this.manual.has(index),unsafe=observed==='occupied'||blocked;
-   let colour=unsafe?[1,.27,.23]:this.mode==='edit'?[.48,.90,.66]:observed==='free'?[.38,.87,.52]:[.76,.66,.42];
+   const observed=this.observed?.[index]||'unknown',blocked=this.manual.has(index),style=voxelStyle(observed,blocked,this.mode,this.displayFilter),unsafe=style.unsafe;
+   let colour=style.colour;
    if(chosen&&!unsafe)colour=colour.map((v,i)=>v*.5+[.55,.83,1][i]*.5);
-   const visible=!['slice','cells'].includes(this.stage)||!cameraOrigin||sliceVisible(this.area,index,this.axis,this.layer,cameraOrigin);const alpha=visible?(index===this.single?.7:unsafe?.45:chosen?.42:.055+.46*Math.max(near,reveal)):0;
+   const visible=style.visible&&(!['slice','cells'].includes(this.stage)||!cameraOrigin||sliceVisible(this.area,index,this.axis,this.layer,cameraOrigin));const alpha=visible?(index===this.single?.7:style.live?.8:unsafe?.45:chosen?.42:.055+.46*Math.max(near,reveal)):0;
    this.instances.set([...centre.map(v=>v*this.scale),...colour,this.sizes[index],alpha,...this.extents[index].map(v=>v*this.scale)],slot*11);
   }
   gl.useProgram(this.program);gl.bindVertexArray(this.vao);gl.bindBuffer(gl.ARRAY_BUFFER,this.instanceBuffer);gl.bufferData(gl.ARRAY_BUFFER,this.instances,gl.DYNAMIC_DRAW);

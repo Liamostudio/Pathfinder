@@ -43,7 +43,7 @@ function chart(group,axis){
  const legend=element('p',undefined,'trace-legend');group.volts.forEach((k,i)=>{const label=element('span',k.slice(2));label.style.color=colors[i%colors.length];legend.append(label);});wrap.append(svg,legend);return wrap;
 }
 if(typeof document!=='undefined'){
- const $=id=>document.getElementById(id);let gate=null,preview=false,sampleMode=false,previewStep=0,previewTimer,pollBusy=false;
+ const $=id=>document.getElementById(id);let gate=null,preview=false,sampleMode=false,previewStep=0,previewTimer,pollBusy=false,armPollBusy=false;
  function renderGate(){const view=gateView(gate);$('hg-state').textContent=view.state;$('hg-state').classList.toggle('instrument-alert',view.alert);$('hg-scale').value=view.scale;$('hg-metrics').textContent=view.metrics;$('hg-source').textContent=preview?'FAKE FEED PREVIEW / display only':gate?.external?'EXTERNAL HAND-GATE STATUS / display only':gate?.simulated?'SIMULATION GROUND TRUTH / no measured camera latency':'Live hand-gate display / missing or stale data cannot imply clearance';}
  async function pollGate(){if(pollBusy)return;pollBusy=true;try{if(preview&&gate)gate.updated=Date.now()/1000;if(!preview){try{const r=await fetch('/api/hand-gate',{signal:AbortSignal.timeout(1500)});gate=r.ok?await r.json():null;}catch{gate=null;}}renderGate();}finally{pollBusy=false;}}
 
@@ -54,7 +54,7 @@ if(typeof document!=='undefined'){
  $('ra-connect').onclick=async()=>{sampleMode=false;try{renderArm(await api('/api/real-arm/connect',{port:$('ra-port').value}));}catch(e){$('ra-state').textContent=e.message;}};
  $('ra-disconnect').onclick=async()=>{sampleMode=false;try{renderArm(await api('/api/real-arm/disconnect',{}));}catch(e){$('ra-state').textContent=e.message;}};
  $('ra-sample').onclick=async()=>{sampleMode=true;renderArm(await api('/api/real-arm/sample'));};
- setInterval(async()=>{if(sampleMode||($('real-arm').hidden&&!$('ws-live-joints').checked))return;try{renderArm(await api('/api/real-arm'));}catch(e){$('ra-state').textContent='NOT CONNECTED · '+e.message;}},1000);
+ setInterval(async()=>{if(armPollBusy||sampleMode||($('real-arm').hidden&&!$('ws-live-joints').checked&&!$('active-live-arm').checked))return;armPollBusy=true;try{renderArm(await api('/api/real-arm'));}catch(e){$('ra-state').textContent='NOT CONNECTED · '+e.message;window.dispatchEvent(new CustomEvent('pathfinder-telemetry',{detail:{state:'UNAVAILABLE',updated:null}}));}finally{armPollBusy=false;}},1000);
  $('trace-sample').onclick=async()=>{try{const response=await fetch('/sample-trace.csv');if(!response.ok)throw Error('Sample unavailable');const groups=parseTrace(await response.text());$('trace-charts').replaceChildren(...groups.flatMap(g=>[chart(g,'t_s'),chart(g,'observed_deg')]));$('trace-status').textContent='2 move segments · FAKE BUS SAMPLE / no hardware connection';}catch(error){$('trace-status').textContent='Trace error: '+error.message;}};
  $('ra-trace').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;const groups=parseTrace(await file.text());$('trace-charts').replaceChildren(...groups.flatMap(g=>[chart(g,'t_s'),chart(g,'observed_deg')]));$('trace-status').textContent=`${groups.length} move segments · recorded trace / no hardware connection`;}catch(error){$('trace-charts').replaceChildren();$('trace-status').textContent='Trace error: '+error.message;}};
 }

@@ -1,3 +1,4 @@
+import {JointEase} from './live-arm-view.js';
 import {GaussianViewer} from '/workspace-viewer.js';
 import {I,mul,point,direction,xyz,axisRotation,gaussianFrame,transformGaussians,rectangle,dot,transpose} from './workspace-math.js';
 
@@ -37,7 +38,7 @@ export class WorkspaceRenderer{
   const draw=()=>{this.render();this.animation=requestAnimationFrame(draw);};draw();
  }
  buffer(values,mode){const gl=this.gl,b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,values,gl.STATIC_DRAW);const entry={buffer:b,count:values.length/9,mode:mode||gl.TRIANGLES};this.buffers.push(entry);return entry;}
- release(){clearTimeout(this.voxelTimeout);this.cubes?.setArea(null,null,null);for(const b of this.buffers)this.gl.deleteBuffer(b.buffer);this.buffers=[];this.robot=[];this.surface=null;this.observed=null;this.proxies=[];this.sourceData=null;this.sourceMetadata=null;this.voxelBuffer=null;this.voxelSignature=null;this.routeBuffer=null;this.routeSignature=null;this.routeInput=null;this.routeStart=null;this.routeFrame=null;}
+ release(){this.jointEase=null;clearTimeout(this.voxelTimeout);this.cubes?.setArea(null,null,null);for(const b of this.buffers)this.gl.deleteBuffer(b.buffer);this.buffers=[];this.robot=[];this.surface=null;this.observed=null;this.proxies=[];this.sourceData=null;this.sourceMetadata=null;this.voxelBuffer=null;this.voxelSignature=null;this.routeBuffer=null;this.routeSignature=null;this.routeInput=null;this.routeStart=null;this.routeFrame=null;}
  async load(manifest,base){
   const generation=++this.generation;this.release();this.photo.clearScene();this.manifest=null;
   const request=async path=>{const r=await fetch(path);if(!r.ok)throw Error('Workspace visual asset unavailable');return r;};
@@ -49,7 +50,9 @@ export class WorkspaceRenderer{
   if(generation!==this.generation)return null;
   this.robot=assets.map(({visual,raw})=>({...visual,geometry:this.buffer(stl(raw,visual.color))}));this.update(manifest);this.photo.capturedView(Math.min(2,scene.cameras.length-1));return scene;
  }
- update(manifest){
+ update(manifest,{easeJoints=false}={}){
+  const now=performance.now(),from=this.jointEase?.value(now)||this.manifest?.robot?.joint_positions||manifest.robot.joint_positions;
+  this.jointEase=easeJoints?new JointEase(from,manifest.robot.joint_positions,now):null;
   this.manifest=structuredClone(manifest);if(!this.description)return;
   const signature=JSON.stringify(manifest.frames.workspace_from_map);
   if(this.sourceData&&signature!==this.frameSignature){this.frameSignature=signature;this.photo.data.set(this.sourceData);this.photo.metadata=structuredClone(this.sourceMetadata);this.photo.target=[...this.sourceTarget];transformGaussians(this.photo,manifest);this.photo.capturedView(0);}
@@ -58,6 +61,7 @@ export class WorkspaceRenderer{
   for(const p of this.proxies||[]){this.gl.deleteBuffer(p.geometry.buffer);this.buffers=this.buffers.filter(b=>b!==p.geometry);}
   const scale=manifest.calibration.meters_per_map_unit||1;this.proxies=manifest.surfaces.filter(s=>s.enabled).map(s=>({name:s.name,geometry:this.buffer(triangles(rectangle(s,scale),[[0,1,2],[0,2,3]],s.name==='table'?[.61,.47,.3]:[.65,.66,.6]))}));
  }
+ holdJointPose(){if(this.jointEase&&this.manifest){this.manifest.robot.joint_positions=this.jointEase.value(performance.now(),matchMedia('(prefers-reduced-motion: reduce)').matches);this.jointEase=null;}}
  setWorkingArea(area,alignment,snapshot){
   clearTimeout(this.voxelTimeout);
   if(snapshot?.states?.some(s=>s!=='unknown')){const remaining=remainingFreshness(snapshot,area.ttl_ms);this.voxelTimeout=setTimeout(()=>this.setWorkingArea(area,alignment,null),remaining);}
@@ -88,8 +92,8 @@ export class WorkspaceRenderer{
   if(m.layers.surfaces){if(m.needs_rebuild){for(const p of this.proxies)draw(p.geometry,I());}else draw(this.surface,t);}
   if(m.layers.observed)draw(this.observed,t);
   if(this.voxelBuffer)draw(this.voxelBuffer,I());
-  if(m.layers.robot){const r=m.robot,base=xyz(r.translation.map(x=>x*scale),r.rotation.map(x=>x*Math.PI/180),r.scale*scale),poses={[this.description.base_link]:base},pending=[...this.description.joints];
-   while(pending.length){let progressed=false;for(const joint of [...pending]){if(!poses[joint.parent])continue;let local=xyz(joint.origin.xyz,joint.origin.rpy),motion=I();if(['revolute','continuous'].includes(joint.type))motion=axisRotation(joint.axis,r.joint_positions[joint.name]||0);poses[joint.child]=mul(poses[joint.parent],mul(local,motion));pending.splice(pending.indexOf(joint),1);progressed=true;}if(!progressed)break;}
+  if(m.layers.robot){const r=m.robot,joints=this.jointEase?.value(performance.now(),matchMedia('(prefers-reduced-motion: reduce)').matches)||r.joint_positions,base=xyz(r.translation.map(x=>x*scale),r.rotation.map(x=>x*Math.PI/180),r.scale*scale),poses={[this.description.base_link]:base},pending=[...this.description.joints];
+   while(pending.length){let progressed=false;for(const joint of [...pending]){if(!poses[joint.parent])continue;let local=xyz(joint.origin.xyz,joint.origin.rpy),motion=I();if(['revolute','continuous'].includes(joint.type))motion=axisRotation(joint.axis,joints[joint.name]||0);poses[joint.child]=mul(poses[joint.parent],mul(local,motion));pending.splice(pending.indexOf(joint),1);progressed=true;}if(!progressed)break;}
    for(const part of this.robot){const visual=xyz(part.origin.xyz,part.origin.rpy),size=I();part.scale.forEach((x,i)=>size[i][i]=x);if(poses[part.link])draw(part.geometry,mul(poses[part.link],mul(visual,size)));}}
   if(this.routeBuffer){draw(this.routeBuffer,I());draw({...this.routeBuffer,mode:gl.POINTS,pointSize:7},I());}
   this.cubes.draw(c,canvas,performance.now());

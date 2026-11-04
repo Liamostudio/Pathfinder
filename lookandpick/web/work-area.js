@@ -1,3 +1,4 @@
+import {mountVoxelFilter,voxelStatus,filterSuffix} from './voxel-display.js';
 import {footprintFromDrag,gridShape,cellCorners,volumeCorners,heightFromDrag,EDGE_PAIRS,fidelityCellSize} from './workspace-voxels.js';
 import {clearManualBlocks} from './voxel-policy.js';
 const $=id=>document.getElementById(id),ns='http://www.w3.org/2000/svg';
@@ -6,6 +7,7 @@ const el=(name,attributes={})=>{const e=document.createElementNS(ns,name);for(co
 export class WorkAreaEditor{
  constructor({context,patch,notice,mode}){
   this.context=context;this.patch=patch;this.notice=notice;this.setMode=mode;this.token=0;this.mode=null;this.preview=null;this.stream=null;this.demo=null;this.liveTimer=null;this.pollBusy=false;
+  this.applyFilter=mountVoxelFilter($('wa-voxel-filter'),()=>this.renderer?.cubes,()=>this.status());
   const action=fn=>()=>Promise.resolve().then(fn).catch(e=>notice(e.message));
   $('wa-draw').onclick=action(()=>{if(!Number.isFinite(Number($('wa-cell').value))||Number($('wa-cell').value)<=0||!Number.isFinite(Number($('wa-height').value))||Number($('wa-height').value)<=0)throw Error('Enter a positive height and cube size first');this.setMode();$('ws-cad-canvas').scrollIntoView({block:'center'});this.mode='draw';this.renderer?.cubes.setEnabled(false);$('wa-cancel').hidden=false;$('ws-area-handles').classList.add('drawing');notice('Drag a rectangle across the tabletop, then pull the top handle up.');});
   $('wa-cancel').onclick=()=>{this.mode=null;this.preview=null;$('wa-cancel').hidden=true;$('ws-area-handles').classList.remove('drawing');this.paint();};
@@ -30,11 +32,11 @@ export class WorkAreaEditor{
   this.identity=identity;this.key=key;
   renderer.onVoxelEdit=(indices,blocked)=>this.editVoxels(indices,blocked);
   renderer.onVoxelClear=async()=>{if(identity!==this.identity)throw Error('Workspace changed; try reset again');const root=this.root,geometry=renderer.cubes.geometry,result=await clearManualBlocks(root,api,()=>identity===this.identity&&root===this.root&&geometry===renderer.cubes.geometry);if(identity!==this.identity||root!==this.root)return;this.snapshot=result.snapshot;this.paint();$('wa-clear-status').textContent=`Reset ${result.cleared} manual no-go cubes. Live detections and unknown cells are unchanged.`;};
-  renderer.onVoxelMode=mode=>$('wa-voxel-mode').value=mode;
+  renderer.onVoxelMode=mode=>{$('wa-voxel-mode').value=mode;this.status();};
   renderer.onVoxelSelection=selection=>{this.selectionIndices=selection.selectedIndices;const single=selection.stage==='cells'&&selection.selectedIndices.length===1;$('wa-row-block').textContent=single?'Block selected voxel':'Block selected slice';$('wa-row-unblock').textContent=single?'Unblock selected voxel':'Unblock selected slice';const axis=selection.axis===null?'':'XYZ'[selection.axis];$('wa-pick-status').textContent=['slice','cells'].includes(selection.stage)?`${axis} slice ${selection.layer+1} · ${selection.stage==='cells'?'layer frozen · click a cell, double-click to toggle; Back to move layers':'move along the axis · click to freeze'}`:selection.stage==='axis'?`Voxel ${selection.voxel} vertex selected · click an X, Y or Z edge`:selection.voxel===null?'Hover a cube and click one of its vertices. Double-click toggles one voxel.':`Voxel ${selection.voxel} · click a vertex to choose an axis, or double-click to toggle`;for(const id of ['wa-row-block','wa-row-unblock'])$(id).disabled=!['slice','cells'].includes(selection.stage);};
   renderer.onVoxelError=message=>this.notice(message);
   if(this.boundRenderer!==renderer){this.boundRenderer=renderer;renderer.cubes.setMode($('wa-voxel-mode').value);}
-  this.manifest=manifest;this.renderer=renderer;this.root='/api/workspaces/'+key;
+  this.manifest=manifest;this.renderer=renderer;if(this.filterRenderer!==renderer){this.filterRenderer=renderer;this.applyFilter();}this.root='/api/workspaces/'+key;
   this.units=manifest.marker_alignment?.canonical_units_per_metre||(manifest.calibration.meters_per_map_unit?1/manifest.calibration.meters_per_map_unit:1);
   const unit=manifest.marker_alignment?(manifest.marker_alignment.metric_inputs_complete?'marker metres':'estimated marker metres'):manifest.calibration.meters_per_map_unit?'metres':'relative units';for(const n of document.querySelectorAll('.wa-unit'))n.textContent=unit;
   const area=manifest.working_area;$('wa-enabled').checked=!!area?.enabled;if(area){$('wa-height').value=+(area.height/this.units).toFixed(3);$('wa-cell').value=+(area.cell_size/this.units).toFixed(3);const count=gridShape(area).reduce((a,b)=>a*b,1);$('wa-fidelity').value=count<=256?'256':count<=1024?'1024':'4096';}
@@ -55,9 +57,10 @@ export class WorkAreaEditor{
   $('wa-dimensions').textContent=area?`${(area.width/this.units).toFixed(2)} × ${(area.depth/this.units).toFixed(2)} × ${(area.height/this.units).toFixed(2)} · ${gridShape(area).join(' × ')} cubes`:'';this.draw();
   const blocked=this.renderer.cubes.manual?.size||0;$('wa-clear-manual').disabled=this.clearingManual||!area?.enabled||!blocked;$('wa-clear-manual').textContent=this.clearingManual?'Resetting manual cubes…':`Reset manual no-go cubes (${blocked})`;
  }
+ status(){if(!this.renderer)return;this.statusText=voxelStatus(this.snapshot,this.renderer.cubes.displayFilter,this.renderer.cubes.mode);$('wa-status').textContent=this.statusText;$('wa-status').dataset.stale=String(this.snapshot?.enabled&&!this.snapshot?.fresh);$('wa-canvas-status').textContent=this.snapshot?.enabled?this.statusText:'';}
  async poll(){
   if(!this.root||this.pollBusy)return;this.pollBusy=true;const root=this.root,identity=this.identity;
-  try{const snap=await api(root+'/voxels');if(root!==this.root||identity!==this.identity)return;this.snapshot=snap;this.paint();const c=snap.counts;this.statusText=snap.enabled?`${snap.simulation?'SIMULATED PEOPLE/HANDS · ':snap.has_recorded_evidence?'RECORDED RGB PEOPLE/HANDS · ':''}${c.free} clear · ${c.occupied} unsafe · ${c.unknown} unknown${snap.fresh?'':' · no fresh observations'}`:'Draw a working area to start.';$('wa-status').textContent=this.statusText;$('wa-canvas-status').textContent=snap.enabled?this.statusText:'';}catch(e){$('wa-status').textContent='Occupancy unavailable · cells unsafe. '+e.message;$('wa-canvas-status').textContent='Observations unavailable · all cells unknown';this.snapshot=null;this.paint();}finally{this.pollBusy=false;}
+  try{const snap=await api(root+'/voxels');if(root!==this.root||identity!==this.identity)return;this.snapshot=snap;this.paint();this.status();}catch(e){$('wa-status').textContent='Occupancy unavailable · cells unsafe. '+e.message;$('wa-canvas-status').textContent='Observations unavailable · all cells unknown'+filterSuffix(this.renderer?.cubes.displayFilter,this.renderer?.cubes.mode);this.snapshot=null;this.paint();}finally{this.pollBusy=false;}
  }
  position(e){const r=$('ws-area-handles').getBoundingClientRect();return [e.clientX-r.left,e.clientY-r.top];}
  world(e){const m=this.manifest,s=m.calibration.meters_per_map_unit||1,xy=this.position(e),p=this.renderer.planePoint(...xy,m.surfaces[0].height*s);return p?.map(x=>x/s);}
