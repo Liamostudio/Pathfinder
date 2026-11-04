@@ -20,6 +20,9 @@ LOOK_S = 10.0            # how long to look again for an object that left the vi
 MAX_GRIPS = 3            # grip attempts before giving up
 MOVED_M = 0.01           # a target that moved more than this is re-aimed at
 SPOT_CLEARANCE_M = 0.04  # a drop spot closer than this to another object is "taken" (cubes are 3.6 cm)
+HAND_CLEARANCE_M = 0.10  # a route around a hand keeps at least this far from it (the simulated stop distance)
+REROUTE_LOOK_S = 0.5     # how often to look for a way around a hand while waiting
+MID_MOVE_PAUSE_S = 1.5   # a move paused this long by a hand starts looking for a way around
 POLL_S = 0.05            # how often a paused move re-checks the hands
 REMIND_S = 20.0          # "still waiting" reminder interval
 
@@ -37,6 +40,14 @@ def _one_action(method):
     return run
 
 
+class _Reroute(Exception):
+    """Raised inside the wait for a hand when a way around it has been found; caught in `_leg`, which follows the route instead."""
+
+    def __init__(self, route):
+        super().__init__("reroute")
+        self.route = route
+
+
 class Tools:
     poll_s, remind_s = POLL_S, REMIND_S
 
@@ -48,6 +59,11 @@ class Tools:
         self._block_reason: str | None = None
         self._action_lock = threading.Lock()
         self._cancelled = threading.Event()     # a person's "cancel": ends the current instruction, latches nothing
+        self.hand_routes = True                 # while a hand holds the arm up, look for a way around it (>= hand_clearance_m from every hand)
+        self.hand_clearance_m = HAND_CLEARANCE_M
+        self.reroute_look_s, self.mid_move_pause_s = REROUTE_LOOK_S, MID_MOVE_PAUSE_S
+        self._pending_route: list | None = None
+        self._detour_depth = 0
         self.routes = True                      # try a way around a no-go cube before refusing
         self.last_route: dict | None = None     # {"kind": "over" | "around", "waypoints": [...]} for Deck, until the next instruction
         self._rerouted: str | None = None
@@ -94,13 +110,68 @@ class Tools:
         self.world.update(hands=hands)
         return hands
 
-    def _wait_for_clear(self, path: tuple[Vec3, Vec3]) -> float:
+    def _plan_around_hands(self, start: Vec3, target: Vec3, hands: list[Hand]) -> list[Vec3] | None:
+        """A route to `target` that keeps `hand_clearance_m` from every hand and passes the no-go cubes and the reach check, or None (also None
+        when the straight line is already clear: then there is nothing to go around)."""
+        if not self.hand_routes or not hands or self._detour_depth >= 2:
+            return None
+        violation = self.zones.violation if self.zones is not None else (lambda a, b: None)
+        try:
+            route = plan_route(start, target, violation, self._reachable, hands=hands, hand_clearance_m=self.hand_clearance_m,
+                               tool_radius_m=getattr(self.zones, "tool_radius_m", 0.04))
+        except ValueError:
+            return None
+        return None if route is None or route == [tuple(target)] else route
+
+    def _watch_for_detour(self, target: Vec3, done: threading.Event) -> None:
+        """While a move is in flight: if a hand has held it paused for `mid_move_pause_s`, look for a way around every `reroute_look_s`; when
+        there is one, end the move WITHOUT latching (the arm holds where it is) and let `_leg` take the new route."""
+        paused_since = last_look = None
+        while not done.wait(0.1):
+            try:
+                hands = list(self.tracker.hands())
+                here = self.arm.position
+                if not self.safety.hand_in_the_way(hands, (here, target)):
+                    paused_since = None
+                    continue
+                now = time.monotonic()
+                paused_since = paused_since or now
+                if now - paused_since < self.mid_move_pause_s or (last_look is not None and now - last_look < self.reroute_look_s):
+                    continue
+                last_look = now
+                route = self._plan_around_hands(here, target, hands)
+                if route is not None:
+                    self._pending_route = route
+                    cancel = getattr(self.arm, "cancel", None)
+                    if callable(cancel):
+                        cancel()
+                    return
+            except Exception:                    # a failed look must never disturb the move; the wait simply carries on
+                continue
+
+    def _detour(self, route: list[Vec3], command: Callable[[float], object], kind: str = "hand") -> bool:
+        self.announce("Going around")
+        self._rerouted = self._rerouted or "rerouted around a hand"
+        self.last_route = {"kind": kind, "waypoints": [list(p) for p in route]}
+        self._detour_depth += 1
+        try:
+            for index, waypoint in enumerate(route):
+                last = index == len(route) - 1
+                leg = command if last else (lambda scale, wp=waypoint: self.arm.move_to(wp, scale))
+                if not self._leg(waypoint, leg):
+                    return False
+            return True
+        finally:
+            self._detour_depth -= 1
+
+    def _wait_for_clear(self, path: tuple[Vec3, Vec3], may_reroute: bool = False) -> float:
         """The speed scale for `path` once no hand is in the way, or 0.0 to give up. A hand in the way is waited out, with no time limit:
         it ends when the hand leaves, a person says stop or cancel, or the safety layer latches (a fault). Every other zero speed
         (a latch, bad geometry) is a refusal. Says so once on pausing, now and then while waiting, and once on resuming."""
         waiting = False
         stop_noted = False
         reminded = 0.0
+        last_look = 0.0
         hands = [Hand(**h) for h in self.world.snapshot()['hands']]
         while True:
             if self._cancelled.is_set():
@@ -135,6 +206,11 @@ class Tools:
             elif now - reminded >= self.remind_s:
                 reminded = now
                 self.announce("Still waiting for the way to clear")
+            if may_reroute and now - last_look >= self.reroute_look_s:
+                last_look = now
+                route = self._plan_around_hands(path[0], path[1], hands)
+                if route is not None:
+                    raise _Reroute(route)
             self._cancelled.wait(self.poll_s)
             hands = self._hands_now()
 
@@ -206,19 +282,34 @@ class Tools:
                 if reason:
                     self._block_reason = reason
                     return False
-            scale = self._wait_for_clear(path)
+            try:
+                scale = self._wait_for_clear(path, may_reroute=True)
+            except _Reroute as found:
+                return self._detour(found.route, command)
             if scale <= 0.0 or (self.safety.stopped and not self.holds_through_stops):
                 return False
             epoch = self.safety.stop_count
+            done, watcher = threading.Event(), None
+            self._pending_route = None
+            if self.hand_routes and self.waits_for_hands:
+                watcher = threading.Thread(target=self._watch_for_detour, args=(target, done), name="detour-watch", daemon=True)
+                watcher.start()
             try:
                 completed = command(scale) is True
             except TimeoutError:
                 completed = False
                 self.safety.stop("fault", "a move made no progress")
                 self.arm.halt()
+            finally:
+                done.set()
+                if watcher is not None:
+                    watcher.join(1)
             self.world.update(arm_position=self.arm.position)
             if completed:
                 return True
+            if self._pending_route is not None and not self.safety.stopped and not self._cancelled.is_set():
+                route, self._pending_route = self._pending_route, None
+                return self._detour(route, command)                       # a hand held the move up and there is a way around it
             if self._cancelled.is_set():
                 self._block_reason = "cancelled"
                 return False

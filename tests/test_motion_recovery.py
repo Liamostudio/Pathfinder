@@ -27,6 +27,7 @@ class SlowArm:
         self.position, self.halted, self.speed, self.scales = (0.0, 0.10, 0.05), False, 0.0, []
         self.gripping, self.log, self.rest_position = False, [], REST
         self._cancel = threading.Event()
+        self.duration = 0.5                      # seconds for a move at full speed
 
     def _go(self, target, cap):
         start, progress = self.position, 0.0
@@ -34,7 +35,7 @@ class SlowArm:
         while progress < 1.0:
             if self.halted or self._cancel.is_set():
                 return False
-            progress += 0.02 * min(cap, self.speed) / 0.5
+            progress += 0.02 * min(cap, self.speed) / self.duration
             self.position = tuple(a + (b - a) * min(progress, 1.0) for a, b in zip(start, target))
             time.sleep(0.02)
         self.position = tuple(target)
@@ -78,13 +79,13 @@ class SlowArm:
 def world():
     made = []
 
-    def make(clear_s=0.4, script=None):
-        detector, camera, arm = FakeHandDetector([]), FakeCamera(), SlowArm()
+    def make(clear_s=0.4, script=None, red=(0.10, 0.10, 0.018), arm=None):
+        detector, camera, arm = FakeHandDetector([]), FakeCamera(), arm or SlowArm()
         gate = HandGate(camera, lambda: detector, CAL, arm, hand_height=HAND_HEIGHT, warmup_s=1.0, safety=Safety.for_arm(arm))
         gate.detector, gate.camera_fake = detector, camera
         gate.start()
         assert wait_for(lambda: gate.status()["state"] == "clear")
-        objects = FakeTracker([TrackedObject("obj1", "red cube", (0.10, 0.10, 0.018))])
+        objects = FakeTracker([TrackedObject("obj1", "red cube", red)])
         model = FakeLLM(script or [ChatResult("", (ToolCall("1", "pick", '{"id": "obj1"}'),)), ChatResult("Done.")])
         runtime = Runtime(model, gate.arm, tracker=gate.tracker(objects), log=CallLog(), say=lambda _: None, safety=gate.safety, gate=gate)
         runtime.recovery.clear_s, runtime.recovery.poll_s, runtime.recovery.retry_s = clear_s, 0.05, 0.1
