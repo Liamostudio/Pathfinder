@@ -286,6 +286,7 @@ def main():
     parser.add_argument('--second-intrinsics',help='Lens calibration for --second-camera (run at 1280x720)')
     parser.add_argument('--gate-size',default='640x360',help='Main hand-gate camera resolution WxH; its lens file must be calibrated at the same size (default 640x360)')
     parser.add_argument('--sam-people',action='store_true',help='With --hand-gate: also segment people and hands with SAM 3.1 (needs scripts/sam_worker.py running) into the voxel map; slow, advisory')
+    parser.add_argument('--sam-main-only',action='store_true',help='With --sam-people: ask SAM about the main camera only (halves the GPU and CPU load; the hand gate still uses every camera)')
     args = parser.parse_args()
     from .workspaces.service import WorkspaceService
     if args.backend=='sim':
@@ -310,7 +311,7 @@ def main():
             from .voxel_feed import workspace_target
             current,observe=workspace_target(workspaces.areas)
             sam_feed=SamPeopleFeed(current,observe,lambda:(gate.camera.latest() or (None,None))[1],SamClient(timeout_s=20),gate.calibration);sam_feed.start()
-            for extra in gate.extra_cameras:   # SAM on each extra camera too: its own calibration, its own source name
+            for extra in ([] if args.sam_main_only else gate.extra_cameras):   # SAM on each extra camera too: its own calibration, its own source name
                 more=SamPeopleFeed(current,observe,lambda cam=extra.camera:(cam.latest() or (None,None))[1],SamClient(timeout_s=20),extra.calibration,source='sam-people-'+extra.name);more.start();sam_extra.append(more)
     server = ThreadingHTTPServer(('127.0.0.1', args.port), make_handler(session,workspaces))
     print(f'Mission control: http://127.0.0.1:{server.server_port} (simulation only)' + (' with live hands in the voxel map' if feed else ''), flush=True)
