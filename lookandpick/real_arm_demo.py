@@ -19,7 +19,7 @@ What it does, in plain words
     stop; this is software.
 
 Where the hands come from: the live Deck owns both cameras (a second process cannot open them) and runs the hand gate in its own
-environment, so this process reads the hands the Deck already publishes on loopback, and does its own speed-and-separation maths
+environment, so this process reads the camera hands the Deck's gate publishes on loopback (`/api/state` -> `hand_gate.positions`), and does its own speed-and-separation maths
 against the REAL arm's tip path. The hand check therefore depends on loopback HTTP freshness from the Deck, and fails closed:
 no answer, an old answer, a stopped or stale gate, or malformed data all read as "cannot see" -> freeze. It never uses the network
 beyond 127.0.0.1.
@@ -78,9 +78,13 @@ def parse_state(state: dict, max_age_s: float) -> HandReading:
     """Turn a Deck `/api/state` document into hands, or a refusal to see. Anything unexpected is a refusal."""
     try:
         gate = state["hand_gate"]
-        scene_hands = state["scene"]["hands"]
         if not isinstance(gate, dict) or gate.get("state") not in HEALTHY_GATE_STATES:
             return HandReading(False, why=f"hand gate is {gate.get('state') if isinstance(gate, dict) else 'missing'}")
+        # The CAMERA hands are in the gate status. `scene.hands` is the simulator's own scene and stays empty for a real hand, so it is
+        # never used here. A Deck that does not publish positions cannot be trusted to have none: that is "cannot see", not "all clear".
+        scene_hands = gate.get("positions")
+        if not isinstance(scene_hands, list):
+            return HandReading(False, why="this Deck does not publish hand positions (restart it from a build that has hand_gate.positions)")
         stale = gate.get("stale_s")
         if stale is None or not math.isfinite(float(stale)) or float(stale) > max_age_s:
             return HandReading(False, why=f"hand data is stale ({stale} s)", stale_s=None if stale is None else float(stale))

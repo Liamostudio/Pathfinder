@@ -117,7 +117,17 @@ def test_the_gate_starts_clear_with_no_hands_and_reports_a_healthy_status(gate):
     status = gate.status()
     assert status["scale"] == 1.0 and status["hands"] == 0 and status["nearest_m"] is None
     assert status["fps"] > 0 and status["latency_ms"]["p50"] is not None and status["stale_s"] < 0.15
-    assert set(status) == {"state", "scale", "nearest_m", "hands", "fps", "latency_ms", "stale_s", "reason", "updated"}
+    assert set(status) == {"state", "scale", "nearest_m", "hands", "fps", "latency_ms", "stale_s", "reason", "updated", "positions"}
+    assert status["positions"] == []
+
+
+def test_the_status_publishes_where_the_camera_hands_are_for_the_real_arm_demo(gate):
+    gate.start()
+    assert wait_for(lambda: gate.status()["state"] == "clear")
+    gate.detector.detections = [hand_at(0.30, 0.10)]
+    assert wait_for(lambda: gate.status()["hands"] == 1)
+    (hand,) = gate.status()["positions"]
+    assert len(hand["position"]) == 3 and all(isinstance(c, float) for c in hand["position"]) and hand["radius_m"] > 0
 
 
 def test_a_hand_close_to_the_arm_stops_it_a_distant_one_slows_it_and_leaving_clears_without_latching(gate):

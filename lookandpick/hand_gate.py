@@ -284,6 +284,8 @@ class HandGate:
                 "hands": len(hands), "fps": round(len(recent) / 2.0, 1),
                 "latency_ms": {"p50": _percentile(decisions, 0.5), "p95": _percentile(decisions, 0.95)},
                 "stale_s": None if age is None else round(age, 3), "reason": snap["reason"], "updated": now}
+        # Where the camera hands are (marker frame, metres), read-only: the real-arm hand-stop demo does its own distance maths with these.
+        out["positions"] = [{"id": str(h["id"]), "position": [float(c) for c in h["position"]], "radius_m": float(h["radius_m"])} for h in hands]
         if self.fusion is not None:
             out["cameras"] = self.fusion.cameras()              # per camera: how old its newest frame is, and how many hands it sees
         return out

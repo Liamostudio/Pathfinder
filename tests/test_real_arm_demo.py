@@ -269,8 +269,8 @@ def test_a_bus_error_releases_torque_and_reports():
 
 # -- the Deck hand source -------------------------------------------------------------------------------------------------------
 def deck_state(**overrides):
-    state = {"hand_gate": {"state": "clear", "scale": 1.0, "stale_s": 0.05}, "scene": {"hands": [{"id": "hand-1", "position": [0.1, 0.2, 0.05], "radius_m": 0.06}]},
-             "stopped": False}
+    state = {"hand_gate": {"state": "clear", "scale": 1.0, "stale_s": 0.05, "positions": [{"id": "hand-1", "position": [0.1, 0.2, 0.05], "radius_m": 0.06}]},
+             "scene": {"hands": []}, "stopped": False}
     state.update(overrides)
     return state
 
@@ -285,9 +285,11 @@ def test_parse_state_reads_hands_in_the_marker_frame():
     deck_state(hand_gate={"state": "stale", "stale_s": 0.1}), deck_state(hand_gate={"state": "latched", "stale_s": 0.1}),
     deck_state(hand_gate={"state": "clear", "stale_s": None}), deck_state(hand_gate={"state": "clear", "stale_s": 2.0}),
     deck_state(hand_gate={"state": "clear", "stale_s": float("nan")}), deck_state(stopped=True),
-    deck_state(scene={"hands": [{"id": "h", "position": [0, 0], "radius_m": 0.05}]}),
-    deck_state(scene={"hands": [{"id": "h", "position": [0, 0, float("inf")], "radius_m": 0.05}]}),
-    deck_state(scene={"hands": [{"id": "h", "position": [0, 0, 0], "radius_m": -1}]}),
+    deck_state(hand_gate={"state": "clear", "stale_s": 0.05, "positions": [{"id": "h", "position": [0, 0], "radius_m": 0.05}]}),
+    deck_state(hand_gate={"state": "clear", "stale_s": 0.05, "positions": [{"id": "h", "position": [0, 0, float("inf")], "radius_m": 0.05}]}),
+    deck_state(hand_gate={"state": "clear", "stale_s": 0.05, "positions": [{"id": "h", "position": [0, 0, 0], "radius_m": -1}]}),
+    deck_state(hand_gate={"state": "clear", "stale_s": 0.05}),                         # a Deck that publishes no positions is blind, not clear
+    deck_state(hand_gate={"state": "clear", "stale_s": 0.05, "positions": None}),
 ])
 def test_anything_unexpected_in_the_deck_state_means_cannot_see(state):
     assert parse_state(state, 0.25).ok is False
@@ -523,3 +525,9 @@ def test_watch_mode_is_read_only_and_says_when_the_plan_would_be_accepted(monkey
     assert seen[1].startswith("-94.0 not yet")
     assert seen[-1].endswith("OK: sweep plan accepted from here")
     assert not bus.enabled and not bus.goal_writes
+
+
+def test_a_hand_in_scene_hands_alone_is_not_used_and_a_gate_with_positions_is():
+    sim_only = deck_state(hand_gate={"state": "clear", "stale_s": 0.05}, scene={"hands": [{"id": "sim", "position": [0, 0, 0], "radius_m": 0.05}]})
+    assert parse_state(sim_only, 0.25).ok is False
+    assert parse_state(deck_state(), 0.25).hands[0].id == "hand-1"
