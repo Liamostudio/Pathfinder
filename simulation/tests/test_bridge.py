@@ -45,3 +45,11 @@ def test_bridge_validation_and_host_checks(bridge):
     with pytest.raises(urllib.error.HTTPError) as exc: client._get('/../../CLAUDE.md')
     assert exc.value.code==404
     assert client.action('joints',positions=[10]*6)['status']=='error'
+
+
+def test_grasp_yaw_travels_over_the_bridge(bridge):
+    client,session=bridge
+    client.set_grasp_yaw(42.5)
+    assert session.sim.grasp_yaw_deg==42.5
+    client.set_grasp_yaw(None)
+    assert session.sim.grasp_yaw_deg is None

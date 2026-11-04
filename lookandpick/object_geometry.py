@@ -52,15 +52,18 @@ class GraspPlan:
     note: str
 
 
-def oriented_object(obj, views, *, jaw_opening_m: float | None = None, **kwargs):
+def oriented_object(obj, views, *, jaw_opening_m: float | None = None, grasp_z_m: float | None = None, **kwargs):
     """`obj` (a `world.TrackedObject`) with its position, size and grasp yaw taken from the masks of `views`.
 
     Raises `GeometryError` when the masks disagree, the object is too wide for the jaws or runs off the measured area. The caller must
-    then refuse the pick (or say why): falling back to a plain centre grasp would be wrong for exactly the objects this exists for."""
+    then refuse the pick (or say why): falling back to a plain centre grasp would be wrong for exactly the objects this exists for.
+    `grasp_z_m` is the lowest height the tool may be sent to (the sim's workspace floor is 15 mm; the real arm's belongs in its
+    commissioned profile): a flat pen's centre is lower than that, so the target height is raised to it."""
     from dataclasses import replace  # noqa: PLC0415
     geometry = estimate_geometry(views, obj.position[:2], **kwargs)
     plan = plan_grasp(geometry, jaw_opening_m=jaw_opening_m)
-    return replace(obj, position=geometry.centre, grasp_yaw_deg=plan.yaw_deg,
+    x, y, z = geometry.centre
+    return replace(obj, position=(x, y, z if grasp_z_m is None else max(z, grasp_z_m)), grasp_yaw_deg=plan.yaw_deg,
                    size_m=(geometry.length_m, geometry.width_m, geometry.height_m))
 
 

@@ -89,5 +89,17 @@ partly built. Never cut: hand safety, one camera, one clean pick. Nothing here t
 - **Step 2 done:** `TrackedObject.grasp_yaw_deg` / `size_m` (omitted from the scene dict until measured), `Tools.pick` calls
   `arm.set_grasp_yaw(...)` when the arm has it (always, so a stale yaw never carries over), `oriented_object(obj, views, jaw_opening_m=)`
   to apply it. The fake arm records it; the sim and the real adapter do not take it yet. `tests/test_grasp_yaw_plumbing.py` (6 tests).
-- **Not done:** step 3 (sim pen with an alignment check), step 4 (live wiring), real cameras, a real pen, jaw opening, wrist-roll and
-  approach-pitch mapping on the real arm.
+- **Step 3 done (the sim rule is ours, not physics):** `Simulation(pen=True)` adds a flat pen (`obj3`, 140x10x10 mm), `place_pen(x, y, yaw)`
+  and `set_grasp_yaw`; a close on the pen misses (grip refused, reason given) unless the commanded yaw puts the jaws within 30 degrees of
+  across its long axis, and a pen with no yaw at all misses too. The wrist is not rotated and the grasp is still the ideal attachment, so
+  this checks that the *decision* is right, not that a real gripper would hold it. Off by default: the default scene is still two cubes.
+  The yaw also travels over the HTTP bridge (`grasp_yaw` action).
+  **End to end from sim-rendered masks** (`simulation/tests/test_pen_grasp.py`): the sim renders the pen from `camera_a` and `camera_b` at
+  1280x720, the calibration comes from the rendered marker, the masks from the sim's segmentation, `oriented_object` gives the yaw and
+  position, and `Tools.pick` picks. Pen yaws 0, 35, 70, 110, 150: grasp yaw within 5 degrees of across the pen, position within 10 mm,
+  pick succeeds (8 repeat runs of the whole file, 17 tests each, all pass). Also refused: a camera whose mask is empty. Wrong, missing and
+  borderline yaws are covered both ways. Lesson from debugging: the sim camera thread stamps a frame after rendering but copies the scene
+  before, so a test (or a live tracker) must wait for a frame from a loop that began after the scene changed, or it fuses stale masks;
+  the geometry refused those stale pairs ("the cameras disagree") instead of returning a wrong yaw.
+- **Not done:** step 4 (live wiring into `SamTracker`, needs a second live camera), real cameras, a real pen, jaw opening, wrist-roll and
+  approach-pitch mapping on the real arm, a contact-based sim grasp.

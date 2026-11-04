@@ -63,6 +63,9 @@ class SimulationClient:
     def halt(self):
         self.action('stop')
 
+    def set_grasp_yaw(self, yaw_deg):
+        self.action('grasp_yaw',yaw=yaw_deg)
+
     def set_speed_scale(self, scale):
         self.action('speed',scale=scale)
 

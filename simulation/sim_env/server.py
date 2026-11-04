@@ -46,6 +46,9 @@ class Session:
                 raise ValueError('Rendering disabled')
             self.cameras.configure(payload.get('name'), payload.get('pose', {}))
             return {'result':'camera updated'}
+        if action == 'grasp_yaw':
+            self.sim.set_grasp_yaw(payload.get('yaw'))
+            return {'result':'grasp yaw updated'}
         if action == 'speed':
             self.sim.set_speed_scale(payload.get('scale'))
             return {'result':'speed updated'}

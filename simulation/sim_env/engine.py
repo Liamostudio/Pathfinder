@@ -13,12 +13,16 @@ import numpy as np
 from lookandpick.safety import Safety, point_segment_distance, valid_position
 from lookandpick.tools import Tools
 from lookandpick.world import Hand, TrackedObject, WorldState
-from .model import JOINTS, OBJECTS, ARM_BASE_OFFSET, build_model
+from .model import JOINTS, OBJECTS, PEN, ARM_BASE_OFFSET, build_model
 
 
 class Simulation:
-    def __init__(self, *, realtime=True):
-        self.model = build_model()
+    GRASP_TOLERANCE_DEG = 30.0       # how far the jaws may be from "across the pen" before the close misses (a sim rule, not physics)
+
+    def __init__(self, *, realtime=True, pen=False):
+        self.model = build_model(pen=pen)
+        self.specs = {**OBJECTS, **(PEN if pen else {})}
+        self.grasp_yaw_deg = None
         self.data = mujoco.MjData(self.model)
         self.lock = threading.RLock()
         self.command_lock = threading.Lock()
@@ -62,7 +66,7 @@ class Simulation:
     def objects(self):
         with self.lock:
             return [TrackedObject(n, label, tuple(float(x) for x in self.data.body(n).xpos), self.held == n)
-                    for n, (label, _, _) in OBJECTS.items()]
+                    for n, (label, _, _) in self.specs.items()]
 
     def hands(self):
         with self.lock:
@@ -82,6 +86,7 @@ class Simulation:
                 self.data.qvel[:] = 0
                 self.target = None
                 self.held = None
+                self.grasp_yaw_deg = None
                 self.gripping = self.halted = False
                 self.hands_list = []
                 self.speed_scale = self.effective_scale = 1.0
@@ -113,6 +118,39 @@ class Simulation:
         with self.lock:
             self.speed_scale = 0 if self.halted else float(scale)
 
+    def set_grasp_yaw(self, yaw_deg):
+        """The gripper yaw the next close is made at (marker frame, degrees); None = unspecified. The sim does not rotate the wrist."""
+        if yaw_deg is not None and (isinstance(yaw_deg, bool) or not isinstance(yaw_deg, (int, float)) or not math.isfinite(yaw_deg)):
+            raise ValueError('Grasp yaw must be a finite number of degrees or None')
+        with self.lock:
+            self.grasp_yaw_deg = None if yaw_deg is None else float(yaw_deg)
+
+    def place_pen(self, x, y, yaw_deg):
+        """Lay the pen flat at (x, y) with its long axis at yaw_deg from the x axis. Only while idle."""
+        if 'obj3' not in self.specs:
+            raise ValueError('This simulation was built without the pen')
+        if self.command_lock.locked():
+            raise ValueError('Place the pen only while idle')
+        with self.lock:
+            addr = self.model.joint('obj3_free').qposadr[0]
+            half = math.radians(yaw_deg) / 2
+            self.data.qpos[addr:addr+7] = [x, y, 0.005, math.cos(half), 0, 0, math.sin(half)]
+            self.data.qvel[:] = 0
+            mujoco.mj_forward(self.model, self.data)
+
+    def _jaws_across(self, name):
+        """None if the commanded yaw puts the jaws across the object's long axis (within tolerance), else why the close would miss."""
+        if name != 'obj3':
+            return None                                  # cubes are compact: any yaw
+        if self.grasp_yaw_deg is None:
+            return 'no grasp yaw given for an elongated object: the close misses'
+        rotation = self.data.body(name).xmat.reshape(3, 3)
+        long_axis = math.degrees(math.atan2(rotation[1, 0], rotation[0, 0]))
+        error = abs((self.grasp_yaw_deg - (long_axis + 90.0) + 90.0) % 180.0 - 90.0)
+        if error > self.GRASP_TOLERANCE_DEG:
+            return f'jaws {error:.0f} degrees off across the pen: the close misses'
+        return None
+
     def set_hand(self, position=None):
         if position is not None and (not valid_position(position) or max(abs(x) for x in position) > 2):
             raise ValueError('Hand must be a finite XYZ position within 2 m')
@@ -141,7 +179,7 @@ class Simulation:
         table = self.model.geom('table').id
         base = self.model.body('base_link').id
         fingers = {self.model.body(n).id for n in ('gripper_link', 'moving_jaw_so101_v1_link')}
-        objects = {self.model.body(n).id for n in OBJECTS}
+        objects = {self.model.body(n).id for n in self.specs}
         robot = set(self.robot_bodies) | fingers | {base}
         for c in data.contact:
             if c.dist > -0.001:
@@ -228,7 +266,7 @@ class Simulation:
         with self.lock:
             rng = np.random.default_rng(seed)
             self.seed = seed
-            for name, (_, position, _) in OBJECTS.items():
+            for name, (_, position, _) in self.specs.items():
                 addr = self.model.joint(name+'_free').qposadr[0]
                 self.data.qpos[addr:addr+3] = np.array(position) + [rng.uniform(-.02,.02),rng.uniform(-.02,.02),0]
             mujoco.mj_forward(self.model,self.data)
@@ -337,6 +375,10 @@ class Simulation:
             self.gripping = closed
             if closed:
                 near = sorted((math.dist(o.position, self.position), o.id) for o in self.objects())
+                miss = self._jaws_across(near[0][1]) if near and near[0][0] < 0.035 else None
+                if miss:
+                    self.reason = miss
+                    return False
                 if near and near[0][0] < 0.035:
                     self.held = near[0][1]
                     self.held_rotation = self.data.site_xmat[self.tcp].reshape(3, 3).T @ self.data.body(self.held).xmat.reshape(3, 3)

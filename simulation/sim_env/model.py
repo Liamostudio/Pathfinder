@@ -10,9 +10,13 @@ ARM_BASE_OFFSET = (0.0, -0.12, 0.0)
 JOINTS = ('shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll', 'gripper')
 OBJECTS = {'obj1': ('red cube', (0.23, 0.10, 0.018), (0.92, 0.16, 0.13, 1)),
            'obj2': ('blue cube', (0.22, -0.13, 0.018), (0.12, 0.46, 0.92, 1))}
+# Opt-in prop for the grasp-orientation work: a pen lying flat (box 140 x 10 x 10 mm). Absent by default so existing scenes,
+# scenarios and seeds are untouched.
+PEN = {'obj3': ('pen', (0.20, 0.0, 0.005), (0.10, 0.12, 0.55, 1))}
+PEN_HALF_SIZE = (0.07, 0.005, 0.005)
 
 
-def build_model():
+def build_model(pen=False):
     source = ROOT / 'assets/so101/so101_new_calib.urdf'
     urdf = ET.parse(source).getroot()
     for mesh in urdf.findall('.//mesh'):
@@ -53,6 +57,12 @@ def build_model():
         ET.SubElement(body, 'freejoint', name=name+'_free')
         ET.SubElement(body, 'geom', name=name+'_geom', type='box', size='0.018 0.018 0.018', mass='0.025',
                       rgba=' '.join(map(str, colour)), friction='0.9 0.01 0.001')
+    if pen:
+        for name, (_, position, colour) in PEN.items():
+            body = ET.SubElement(world, 'body', name=name, pos=' '.join(map(str, position)))
+            ET.SubElement(body, 'freejoint', name=name+'_free')
+            ET.SubElement(body, 'geom', name=name+'_geom', type='box', size=' '.join(map(str, PEN_HALF_SIZE)), mass='0.015',
+                          rgba=' '.join(map(str, colour)), friction='0.9 0.01 0.001')
     hand = ET.SubElement(world, 'body', name='hand', mocap='true', pos='0.6 0.4 0.3')
     ET.SubElement(hand, 'geom', name='hand_geom', type='ellipsoid', size='0.035 0.045 0.015', rgba='1 0.65 0.43 0', contype='0', conaffinity='0')
     ET.SubElement(hand, 'geom', name='hand_forearm', type='capsule', fromto='0 -0.13 0 0 -0.035 0', size='0.023', rgba='1 0.65 0.43 0', contype='0', conaffinity='0')
