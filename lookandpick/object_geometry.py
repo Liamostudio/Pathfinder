@@ -44,6 +44,9 @@ class ObjectGeometry:
     discarded_fraction: float              # share of the hull dropped as disconnected fragments
     clipped: bool                          # the hull touches the edge of the search box: the object may be larger than it looks
     method: str                            # "hull" or "footprint"
+    silhouette_width_m: float = 0.0        # widest camera silhouette in metres: a floor on the size of a rounded object the base layers under-read
+    centre_on_object: bool = True          # false when the centre falls in a gap (an L, a ring): a centre grasp would miss
+    height_clipped: bool = False           # the object is taller than the search box: height_m is only "at least this"
 
 
 @dataclass(frozen=True)
@@ -105,6 +108,18 @@ def _pixels_to_plane(calibration, pixels: np.ndarray, z: float) -> np.ndarray:
         scale = (z - origin[2]) / directions[:, 2]
     good = np.isfinite(scale) & (scale > 0)
     return (origin[:2] + scale[good, None] * directions[good, :2])
+
+
+def _silhouette_width(view: View, centre) -> float:
+    """Metric width of the mask's largest piece along the image's horizontal axis, at the depth of `centre`. A floor on the object's
+    extent across that view: unlike the hull's base layers it does not under-read a rounded object, which is widest above the table.
+    Stray specks are ignored (one pixel off in a corner would otherwise stretch it across the frame)."""
+    _, depth = _project(view.calibration, np.array([centre], float))
+    count, _, stats, _ = _cv2().connectedComponentsWithStats(np.asarray(view.mask).astype(np.uint8), connectivity=8)
+    if count < 2 or depth[0] <= 0:
+        return 0.0
+    biggest = 1 + int(np.argmax(stats[1:, 4]))                                  # cv2.CC_STAT_AREA
+    return float(stats[biggest, 2] * depth[0] / view.calibration.camera_matrix[0, 0])    # cv2.CC_STAT_WIDTH
 
 
 def _planar_axes(points_xy: np.ndarray):
@@ -182,11 +197,14 @@ def _hull_geometry(views, centre_xy, *, base_height_m: float = 0.006, **box) -> 
             break
         height_layers = k + 1
     length, width, height = length + cell, width + cell, max(height_layers, 1) * cell
+    centre3 = (float(centre_[0]), float(centre_[1]), height / 2)
+    on_object = bool(np.min(np.linalg.norm(points[base, :2] - centre_, axis=1)) <= 1.5 * cell)
     return ObjectGeometry(
-        centre=(float(centre_[0]), float(centre_[1]), height / 2),
+        centre=centre3,
         long_axis_yaw_deg=_yaw_deg(axis), length_m=length, width_m=width, height_m=height,
         elongation=length / width, views=len(views), cells=int(base.sum()), discarded_fraction=discarded,
-        clipped=clipped, method="hull")
+        clipped=clipped, method="hull", silhouette_width_m=max(_silhouette_width(v, centre3) for v in views),
+        centre_on_object=on_object, height_clipped=height_layers >= int(round(box.get('max_height_m', 0.08) / cell)))
 
 
 def footprint_geometry(view: View, *, assumed_height_m: float = 0.02) -> ObjectGeometry:
@@ -199,10 +217,14 @@ def footprint_geometry(view: View, *, assumed_height_m: float = 0.02) -> ObjectG
         raise GeometryError("the mask does not meet the table plane")
     centre, axis, length, width = _planar_axes(points)
     width = max(width, 1e-4)
+    centre3 = (float(centre[0]), float(centre[1]), assumed_height_m / 2)
+    spacing = max(length, width) / math.sqrt(len(points))                       # roughly the gap between neighbouring samples
+    on_object = bool(np.min(np.linalg.norm(points - centre, axis=1)) <= max(0.006, 2 * spacing))
     return ObjectGeometry(
-        centre=(float(centre[0]), float(centre[1]), assumed_height_m / 2),
+        centre=centre3,
         long_axis_yaw_deg=_yaw_deg(axis), length_m=length, width_m=width, height_m=assumed_height_m,
-        elongation=length / width, views=1, cells=int(len(points)), discarded_fraction=0.0, clipped=False, method="footprint")
+        elongation=length / width, views=1, cells=int(len(points)), discarded_fraction=0.0, clipped=False, method="footprint",
+        silhouette_width_m=_silhouette_width(view, centre3), centre_on_object=on_object)
 
 
 def estimate_geometry(views, centre_xy=None, *, half_extent_m: float = 0.10, cell_m: float = 0.002, max_height_m: float = 0.08,
@@ -223,8 +245,12 @@ def plan_grasp(geometry: ObjectGeometry, *, jaw_opening_m: float | None = None, 
     """Where the jaws should point. Raises `GeometryError` when the grasp should be refused rather than attempted."""
     if geometry.clipped:
         raise GeometryError("the object runs off the edge of the measured area: its size is unknown")
+    if not geometry.centre_on_object:
+        raise GeometryError("the measured centre is not on the object (an L, a ring, two items?): a centre grasp would miss")
     elongated = geometry.elongation >= min_elongation
-    across = geometry.width_m if elongated else max(geometry.width_m, geometry.length_m)   # what the jaws must span
+    # What the jaws must span. A compact object can be closed on at any yaw, so it needs its largest extent; the silhouette width is a
+    # floor for rounded objects, whose base layers read narrow.
+    across = geometry.width_m if elongated else max(geometry.width_m, geometry.length_m, geometry.silhouette_width_m)
     if jaw_opening_m is not None and across > jaw_opening_m:
         raise GeometryError(f"too wide for the gripper: {across * 1000:.0f} mm across, jaws open {jaw_opening_m * 1000:.0f} mm")
     if not elongated:

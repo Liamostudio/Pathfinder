@@ -13,15 +13,17 @@ import numpy as np
 from lookandpick.safety import Safety, point_segment_distance, valid_position
 from lookandpick.tools import Tools
 from lookandpick.world import Hand, TrackedObject, WorldState
-from .model import JOINTS, OBJECTS, PEN, ARM_BASE_OFFSET, build_model
+from .model import JOINTS, OBJECTS, PROPS, ELONGATED, ARM_BASE_OFFSET, build_model
 
 
 class Simulation:
     GRASP_TOLERANCE_DEG = 30.0       # how far the jaws may be from "across the pen" before the close misses (a sim rule, not physics)
 
-    def __init__(self, *, realtime=True, pen=False):
-        self.model = build_model(pen=pen)
-        self.specs = {**OBJECTS, **(PEN if pen else {})}
+    def __init__(self, *, realtime=True, pen=False, props=()):
+        self.model = build_model(pen=pen, props=props)
+        self.specs = {**OBJECTS}
+        for prop in sorted(set(props) | ({'pen'} if pen else set())):
+            self.specs.update(PROPS[prop])
         self.grasp_yaw_deg = None
         self.data = mujoco.MjData(self.model)
         self.lock = threading.RLock()
@@ -125,30 +127,33 @@ class Simulation:
         with self.lock:
             self.grasp_yaw_deg = None if yaw_deg is None else float(yaw_deg)
 
-    def place_pen(self, x, y, yaw_deg):
-        """Lay the pen flat at (x, y) with its long axis at yaw_deg from the x axis. Only while idle."""
-        if 'obj3' not in self.specs:
-            raise ValueError('This simulation was built without the pen')
+    def place_prop(self, name, x, y, yaw_deg):
+        """Lay an opt-in prop (e.g. 'obj3', the pen) upright or flat at (x, y), turned yaw_deg about the vertical. Only while idle."""
+        if name not in self.specs or name in OBJECTS:
+            raise ValueError('This simulation was built without that prop')
         if self.command_lock.locked():
-            raise ValueError('Place the pen only while idle')
+            raise ValueError('Place props only while idle')
         with self.lock:
-            addr = self.model.joint('obj3_free').qposadr[0]
+            addr = self.model.joint(name+'_free').qposadr[0]
             half = math.radians(yaw_deg) / 2
-            self.data.qpos[addr:addr+7] = [x, y, 0.005, math.cos(half), 0, 0, math.sin(half)]
+            self.data.qpos[addr:addr+7] = [x, y, self.specs[name][1][2], math.cos(half), 0, 0, math.sin(half)]
             self.data.qvel[:] = 0
             mujoco.mj_forward(self.model, self.data)
 
+    def place_pen(self, x, y, yaw_deg):
+        self.place_prop('obj3', x, y, yaw_deg)
+
     def _jaws_across(self, name):
         """None if the commanded yaw puts the jaws across the object's long axis (within tolerance), else why the close would miss."""
-        if name != 'obj3':
-            return None                                  # cubes are compact: any yaw
+        if name not in ELONGATED:
+            return None                                  # cubes and cans are compact: any yaw
         if self.grasp_yaw_deg is None:
             return 'no grasp yaw given for an elongated object: the close misses'
         rotation = self.data.body(name).xmat.reshape(3, 3)
         long_axis = math.degrees(math.atan2(rotation[1, 0], rotation[0, 0]))
         error = abs((self.grasp_yaw_deg - (long_axis + 90.0) + 90.0) % 180.0 - 90.0)
         if error > self.GRASP_TOLERANCE_DEG:
-            return f'jaws {error:.0f} degrees off across the pen: the close misses'
+            return f'jaws {error:.0f} degrees off across the {self.specs[name][0]}: the close misses'
         return None
 
     def set_hand(self, position=None):

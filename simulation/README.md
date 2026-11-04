@@ -147,3 +147,5 @@ Actions: `pick {id}`, `place {id, position}`, `move {position, speed_scale}`, `j
 ## Opt-in pen (grasp orientation)
 
 `Simulation(pen=True)` adds a flat pen (`obj3`, 140 x 10 x 10 mm) with `place_pen(x, y, yaw_deg)` and `set_grasp_yaw(deg)`. A close on the pen succeeds only if the commanded yaw puts the jaws within 30 degrees of across its long axis; with no yaw it misses. This is a rule for checking the orientation *decision*, not physics: the wrist does not rotate and the grasp is still the ideal attachment. Off by default. See `docs/grasp-orientation-plan.md` and `tests/test_pen_grasp.py`.
+
+More opt-in items: `Simulation(props=('pen', 'can', 'duck'))` adds an upright can (compact, any yaw) and a small toy duck (ellipsoid body, light sphere head; long axis, so the jaws must go across it); `place_prop(id, x, y, yaw)` places one. `tests/test_item_grasp.py` runs the cube, can, duck and pen end to end from rendered masks. Re-aim the `top` camera from the side first (`configure('top', {'azimuth': -135, 'elevation': -45, 'distance': 0.65, 'lookat': [0.08, 0, 0.04]})`): its default view hides the marker behind the resting arm.

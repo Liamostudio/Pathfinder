@@ -55,6 +55,37 @@ bound (inflated by view angle and mask edge), which is the safe direction for a 
 | SAM 3D Objects | Already in the repo as the hosted (fal.ai) option for the workspace Gaussian scan (`workspace_splat/`). One image to 3D; not in the grasp path. Listed as the upgrade path for a single-camera pose. |
 | V-JEPA 2 / 2-AC | Not used. Reported zero-shot grasp success on a different arm is 25-65%, and the arm differs. README mention only, labelled not built. |
 
+## Other items: cube, can, ball, small toys (4 Nov, after the pen)
+
+Same module, new shapes. Synthetic views first (`tests/test_object_geometry_items.py`, perfect masks, 6 yaws, 2 and 3 views), then the
+same items in the sim from rendered masks (`simulation/tests/test_item_grasp.py`: three cameras, calibration from the rendered marker,
+then geometry, then `Tools.pick`; 9 yaws per item). Where the answer was bad, the code or the claim changed rather than the test.
+
+| Item | What it gave | Verdict |
+| --- | --- | --- |
+| Cube 36 mm (sim) | 9/9 picked, no yaw asked. Reads 42-53 x 40-52 mm (true 36): big, the safe side. | Works |
+| Cube 30 / 45 mm (synthetic) | Centre within 8 mm; never reads smaller than the cube; no yaw with 3 views. | Works |
+| Can 66 x 100 mm upright | Sim 9/9 picked; reads 68-70 mm across (true 66), height 128 (true 100, loose). Synthetic 2 views read 85 x 77 mm. A 100 mm can is taller than the default 80 mm search box, so `height_clipped` is set unless `max_height_m` is raised. | Works; height is only an upper bound |
+| Can on its side | 3 views: yaw within 12 degrees at all 6 poses. 2 views: yaw up to ~15 degrees out and centre up to 19 mm off. It would also roll. | 3 views only |
+| Ball 40 mm | Centre fine, no yaw with 3 views (2 views can read it 1.5:1, a harmless spurious yaw). **The base layers read it 25-30 mm wide**, because a ball is widest above the table. | Fixed for the jaw check by a silhouette floor (see below) |
+| Toy car (box body + cabin) | 3 views: jaws across the body at all 6 poses, within 12 degrees. | Works |
+| Toy duck (ellipsoid + head) | Sim, 9 yaws: **7 picked, 2 missed** (3 views; 2 views the same, with yaw errors up to 24 degrees). The two misses are poses where it reads as compact (elongation 1.2-1.4 against a 1.5 threshold), so no yaw is given and the sim correctly misses. A yaw that is given is always within 17 degrees. | Partly works: 78% |
+| L-shaped toy | The hull fills the notch (reads 115 x 73 mm for an 80 x 80 mm L) and the centre lands ~10 mm off the material at every pose. `centre_on_object` refuses only 4 of 12 poses. | **Not handled.** Needs depth or a contact check |
+
+What changed because of this:
+
+- **Silhouette-width floor.** Round-bottomed items (ball, duck) are widest above the table, so the base-layer measurement under-reads them
+  by up to ~40%, the unsafe direction for a jaw check. `ObjectGeometry.silhouette_width_m` (the widest camera silhouette, in metres, largest
+  piece of the mask only so a stray speck cannot stretch it) is now a floor for compact objects in `plan_grasp`.
+- **`centre_on_object`** (refuse when the measured centre has no object under it) and **`height_clipped`** (taller than the search box).
+- **Not changed, on purpose:** the elongation threshold stays 1.5. Lowering it would give the duck a yaw more often, but cubes and balls
+  would get an unneeded wrist turn, and the cube pick is the hero. `plan_grasp(min_elongation=...)` is there if a toy demo wants it.
+- A sim lesson: a toy with a heavy head hopped across the table; the head is now light (3 g of 15 g). Sim camera `top` looks almost
+  straight down and the resting arm hides part of the marker, so the item tests aim it from the side (azimuth -135).
+
+Two honest limits: the sim items are rigid solids with ideal grasps (the pass/fail rule is ours), and none of this has met a real can,
+toy or camera.
+
 ## Steps, acceptance tests and cut line
 
 1. **`lookandpick/object_geometry.py`** (pure numpy + OpenCV projection). Accept: on synthetic pens with known pose rendered through
@@ -101,5 +132,6 @@ partly built. Never cut: hand safety, one camera, one clean pick. Nothing here t
   borderline yaws are covered both ways. Lesson from debugging: the sim camera thread stamps a frame after rendering but copies the scene
   before, so a test (or a live tracker) must wait for a frame from a loop that began after the scene changed, or it fuses stale masks;
   the geometry refused those stale pairs ("the cameras disagree") instead of returning a wrong yaw.
+- **Other items done:** see "Other items" above (`simulation/tests/test_item_grasp.py`, `tests/test_object_geometry_items.py`).
 - **Not done:** step 4 (live wiring into `SamTracker`, needs a second live camera), real cameras, a real pen, jaw opening, wrist-roll and
   approach-pitch mapping on the real arm, a contact-based sim grasp.

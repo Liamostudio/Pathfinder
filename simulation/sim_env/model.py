@@ -14,9 +14,18 @@ OBJECTS = {'obj1': ('red cube', (0.23, 0.10, 0.018), (0.92, 0.16, 0.13, 1)),
 # scenarios and seeds are untouched.
 PEN = {'obj3': ('pen', (0.20, 0.0, 0.005), (0.10, 0.12, 0.55, 1))}
 PEN_HALF_SIZE = (0.07, 0.005, 0.005)
+# More opt-in items for the same work: an upright can (compact: any yaw) and a small toy duck (an ellipsoid body plus a sphere head: it
+# has a long axis, so the jaws must go across it). Each is a body at its centre height with these geoms: (type, size, offset from the body, mass in kg).
+CAN = {'obj4': ('can', (0.20, 0.0, 0.05), (0.80, 0.55, 0.10, 1))}
+DUCK = {'obj5': ('toy duck', (0.20, 0.0, 0.02), (0.95, 0.80, 0.15, 1))}
+PROPS = {'pen': PEN, 'can': CAN, 'duck': DUCK}
+PROP_GEOMS = {'obj3': [('box', PEN_HALF_SIZE, (0, 0, 0), 0.015)],
+              'obj4': [('cylinder', (0.033, 0.05), (0, 0, 0), 0.015)],
+              'obj5': [('ellipsoid', (0.04, 0.025, 0.02), (0, 0, 0), 0.012), ('sphere', (0.015,), (0.036, 0, 0.028), 0.003)]}
+ELONGATED = {'obj3', 'obj5'}          # props with a long axis along the body's x: the jaws must close across it
 
 
-def build_model(pen=False):
+def build_model(pen=False, props=()):
     source = ROOT / 'assets/so101/so101_new_calib.urdf'
     urdf = ET.parse(source).getroot()
     for mesh in urdf.findall('.//mesh'):
@@ -57,12 +66,14 @@ def build_model(pen=False):
         ET.SubElement(body, 'freejoint', name=name+'_free')
         ET.SubElement(body, 'geom', name=name+'_geom', type='box', size='0.018 0.018 0.018', mass='0.025',
                       rgba=' '.join(map(str, colour)), friction='0.9 0.01 0.001')
-    if pen:
-        for name, (_, position, colour) in PEN.items():
+    for prop in sorted(set(props) | ({'pen'} if pen else set())):
+        for name, (_, position, colour) in PROPS[prop].items():
             body = ET.SubElement(world, 'body', name=name, pos=' '.join(map(str, position)))
             ET.SubElement(body, 'freejoint', name=name+'_free')
-            ET.SubElement(body, 'geom', name=name+'_geom', type='box', size=' '.join(map(str, PEN_HALF_SIZE)), mass='0.015',
-                          rgba=' '.join(map(str, colour)), friction='0.9 0.01 0.001')
+            for index, (kind, size, offset, mass) in enumerate(PROP_GEOMS[name]):
+                ET.SubElement(body, 'geom', name=name+('_geom' if index == 0 else f'_geom{index}'), type=kind, size=' '.join(map(str, size)),
+                              pos=' '.join(map(str, offset)), mass=str(mass),
+                              rgba=' '.join(map(str, colour)), friction='0.9 0.01 0.001')
     hand = ET.SubElement(world, 'body', name='hand', mocap='true', pos='0.6 0.4 0.3')
     ET.SubElement(hand, 'geom', name='hand_geom', type='ellipsoid', size='0.035 0.045 0.015', rgba='1 0.65 0.43 0', contype='0', conaffinity='0')
     ET.SubElement(hand, 'geom', name='hand_forearm', type='capsule', fromto='0 -0.13 0 0 -0.035 0', size='0.023', rgba='1 0.65 0.43 0', contype='0', conaffinity='0')
