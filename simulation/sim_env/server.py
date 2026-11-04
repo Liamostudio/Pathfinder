@@ -38,6 +38,8 @@ class Session:
         if action == 'stop':
             self.sim.halt()
             return {'result':'stopped', 'state': self.state()}
+        if action == 'reachable':
+            return {'result':bool(self.sim.reachable(tuple(payload['position'])))}
         if action == 'resume':
             self.sim.resume()
             return {'result':'resumed'}
@@ -50,7 +52,6 @@ class Session:
         if action=='nudge':return {'result':self.sim.nudge(payload.get('name'),payload.get('dx'),payload.get('dy'))}
         if action=='hide':return {'result':self.sim.hide(payload.get('name'),payload.get('hidden',True))}
         if action=='grip_miss_once':return {'result':self.sim.grip_miss_once()}
-        if action=='reachable':return {'result':self.sim.reachable(payload.get('position'))}
         if action == 'camera':
             if not self.cameras:
                 raise ValueError('Rendering disabled')

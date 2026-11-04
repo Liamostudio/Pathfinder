@@ -70,9 +70,6 @@ class SimulationClient:
         result=self.action('rest',speed_scale=speed_scale)
         return result.get('status')=='completed' and result.get('result') is True
 
-    def reachable(self, position):
-        return self.action('reachable',position=list(position)).get('result') is True
-
     def nudge(self, name, dx, dy):
         return self.action('nudge',name=name,dx=dx,dy=dy).get('result') is True
 
@@ -90,6 +87,13 @@ class SimulationClient:
 
     def resume(self):
         self.action('resume')
+
+    def reachable(self, point):
+        """Dry-run reach check (no motion): can the arm's tip get to this point?"""
+        try:
+            return self.action('reachable', position=list(point)).get('result') is True
+        except Exception:
+            return False
 
     def set_grasp_yaw(self, yaw_deg):
         self.action('grasp_yaw',yaw=yaw_deg)

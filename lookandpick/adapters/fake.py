@@ -61,6 +61,10 @@ class SimArm:
             self.log.append(("grip", closed))
             return True
 
+    def reachable(self, point) -> bool:
+        x, y, z = point
+        return -0.4 <= x <= 0.5 and -0.4 <= y <= 0.4 and 0.0 <= z <= 0.5
+
     def resume(self) -> None:
         with self._lock:
             self.halted = False

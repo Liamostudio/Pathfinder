@@ -11,6 +11,7 @@ from functools import wraps
 from typing import Callable
 
 from .adapters.base import Arm, Tracker
+from .routing import plan_route
 from .safety import Safety, valid_position
 from .world import Hand, TrackedObject, Vec3, WorldState
 
@@ -47,6 +48,9 @@ class Tools:
         self._block_reason: str | None = None
         self._action_lock = threading.Lock()
         self._cancelled = threading.Event()     # a person's "cancel": ends the current instruction, latches nothing
+        self.routes = True                      # try a way around a no-go cube before refusing
+        self.last_route: dict | None = None     # {"kind": "over" | "around", "waypoints": [...]} for Deck, until the next instruction
+        self._rerouted: str | None = None
         self.relook = None                      # a callable that asks the scene to look at the table again (SAM); set by the Runtime
         self.look_s, self.max_grips, self.moved_m, self.spot_clearance_m = LOOK_S, MAX_GRIPS, MOVED_M, SPOT_CLEARANCE_M
         self.verify_lift = False                # True with a camera tracker: after closing, check the object rose with the gripper
@@ -67,6 +71,7 @@ class Tools:
         """A new instruction from a person clears an earlier cancel (and an earlier give-up)."""
         self._cancelled.clear()
         self.gave_up = False
+        self.last_route = None
 
     def cancel(self) -> str:
         """End the current instruction without latching anything: a move in flight is dropped (the arm holds where it is)
@@ -144,7 +149,50 @@ class Tools:
     def _move(self, target: Vec3) -> bool:
         return self._segment(target, lambda scale: self.arm.move_to(target, scale))
 
+    def _reachable(self, point: Vec3) -> bool:
+        check = getattr(self.arm, "reachable", None)
+        if callable(check):
+            return bool(check(point))
+        x, y, z = point
+        return -0.4 <= x <= 0.5 and -0.4 <= y <= 0.4 and 0.0 <= z <= 0.5
+
+    def _route(self, start: Vec3, end: Vec3) -> list[Vec3] | None:
+        """A way around the no-go cubes (up and over, else sideways), or None. The cubes are fixed, so none means waiting will not help."""
+        if not self.routes or self.zones is None:
+            return None
+        try:
+            return plan_route(start, end, self.zones.violation, self._reachable, tool_radius_m=getattr(self.zones, "tool_radius_m", 0.04))
+        except ValueError:
+            return None
+
     def _segment(self, target: Vec3, command: Callable[[float], object]) -> bool:
+        """One move to `target`, going around a no-go cube if the straight line crosses one ('Going around'): each leg of a detour is still
+        checked against the hands and the cubes, and can pause and carry on like any move."""
+        self._refresh()
+        start = self.arm.position
+        if self.zones is not None and self.zones.violation(start, target):
+            route = self._route(start, target)
+            if route is None:
+                reason = self.zones.violation(start, target)
+                self._block_reason = reason
+                if self.routes:
+                    self._give_up(f"{reason}; no way around it was found (every route is blocked by no-go cubes)",
+                                  "I can't find a way past the no-go zone; move the target or the zone and I'll try again.")
+                    self._block_reason = f"{reason}; no way around it was found (every route is blocked by no-go cubes)"
+                return False
+            kind = "over" if max(p[2] for p in route[:-1] or route) > max(start[2], target[2]) + 0.01 else "around"
+            self.announce("Going around")
+            self._rerouted = f"rerouted {kind} a no-go zone"
+            self.last_route = {"kind": kind, "waypoints": [list(p) for p in route]}
+            for index, waypoint in enumerate(route):
+                last = index == len(route) - 1
+                leg = command if last else (lambda scale, wp=waypoint: self.arm.move_to(wp, scale))
+                if not self._leg(waypoint, leg):
+                    return False
+            return True
+        return self._leg(target, command)
+
+    def _leg(self, target: Vec3, command: Callable[[float], object]) -> bool:
         """Check safety before commanding; return True only after acknowledged completion. A hand in the way is waited out; under the Runtime
         a stop mid-move is waited out too (a person's 'carry on', or an automatic recovery from a fault), then the move is issued again from where
         the arm stopped. A move that makes no progress is a fault stop."""
@@ -269,6 +317,7 @@ class Tools:
     @_one_action
     def pick(self, id: str) -> str:
         self._block_reason = None
+        self._rerouted = None
         if self.safety.stopped:
             return "blocked: stopped"
         if self._cancelled.is_set():
@@ -321,7 +370,7 @@ class Tools:
         if not self._move(above):
             return f"blocked: holding {obj['label']}; retreat incomplete"
         self.gave_up = False
-        return f"picked {obj['label']}"
+        return f"picked {obj['label']}" + (f" ({self._rerouted})" if self._rerouted else "")
 
     def _lifted(self, id: str, above: Vec3) -> bool:
         """After closing on it with a camera tracker: lift a little and see whether the object came too (it did not if it is still on the table)."""
@@ -332,6 +381,7 @@ class Tools:
     @_one_action
     def place(self, id: str, loc: Vec3) -> str:
         self._block_reason = None
+        self._rerouted = None
         if self.safety.stopped:
             return "blocked: stopped"
         if self._cancelled.is_set():
@@ -356,7 +406,7 @@ class Tools:
         if not self._move(above):
             return f"blocked: released {obj['label']}; retreat incomplete"
         self.gave_up = False
-        return f"placed {obj['label']}"
+        return f"placed {obj['label']}" + (f" ({self._rerouted})" if self._rerouted else "")
 
     def stop(self) -> str:
         self.safety.stop("person", "STOP requested")

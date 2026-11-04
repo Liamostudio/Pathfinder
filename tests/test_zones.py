@@ -85,11 +85,24 @@ def tools_for(guard, arm=None):
     return Tools(WorldState(), tracker, arm, Safety(), say=lambda _: None, zones=guard), arm
 
 
-def test_pick_is_refused_before_the_arm_moves_and_the_model_is_told_why(zone):
+def test_without_routing_the_pick_is_refused_before_the_arm_moves_and_the_model_is_told_why(zone):
+    guard, _ = zone
+    tools, arm = tools_for(guard)
+    tools.routes = False
+    result = tools.pick("red")
+    assert result.startswith("blocked: the path crosses a no-go zone") and arm.moves == []
+
+
+def test_with_routing_the_pick_goes_around_the_zone_and_the_model_is_told_it_rerouted(zone):
     guard, _ = zone
     tools, arm = tools_for(guard)
     result = tools.pick("red")
-    assert result.startswith("blocked: the path crosses a no-go zone") and arm.moves == []
+    assert result.startswith("picked red cube (rerouted ") and "a no-go zone" in result
+    assert arm.moves and tools.last_route and tools.last_route["kind"] in ("over", "around")
+    previous = (0.0, 0.0, 0.05)
+    for move in arm.moves:
+        assert guard.violation(previous, move) is None                          # no leg of the detour (or anything after it) crosses a cube
+        previous = move
 
 
 def test_the_same_pick_goes_ahead_when_the_zone_is_cleared_or_absent(zone):
@@ -108,8 +121,11 @@ def test_a_zone_drawn_after_the_first_move_blocks_the_next_one(zone):
     tools, arm = tools_for(guard)
     assert tools.pick("red") == "picked red cube"
     mapping.manual_blocked = blocked                                                          # a person draws the zone while the cube is held
+    tools.routes = False
     result = tools.place("red", (-0.1, 0.0, 0.018))
     assert result.startswith("blocked: the path crosses a no-go zone")
+    tools.routes = True                                                                       # with routing it goes around instead
+    assert tools.place("red", (-0.1, 0.0, 0.018)).startswith("placed red cube (rerouted ")
 
 
 def test_the_zone_check_does_not_replace_the_stop_latch_or_hand_safety(zone):

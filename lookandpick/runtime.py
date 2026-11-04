@@ -155,6 +155,8 @@ class Runtime:
             out["stop"] = {"kind": kind, "reason": self.safety.stop_reason or ("recovering" if self.safety.holding else ""),
                            "recovering_in_s": recovery["recovering_in_s"] if recovery and kind == "fault" else None,
                            "resets_left": self.recovery.resets_left() if self.recovery is not None else 0}
+        if self.tools.last_route is not None:
+            out["route"] = self.tools.last_route
         return out
 
     def hand_gate_status(self) -> dict | None:
