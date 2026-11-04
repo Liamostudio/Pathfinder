@@ -13,7 +13,7 @@ import numpy as np
 from lookandpick.safety import Safety, point_segment_distance, valid_position
 from lookandpick.tools import Tools
 from lookandpick.world import Hand, TrackedObject, WorldState
-from .model import JOINTS, OBJECTS, PROPS, ELONGATED, ARM_BASE_OFFSET, build_model
+from .model import JOINTS, OBJECTS, PROPS, ELONGATED, ARM_BASE_OFFSET, build_model, layout as make_layout
 from .rest_pose import rest_joint_targets
 
 
@@ -21,9 +21,10 @@ class Simulation:
     simulated = True                 # the 10 cm stop distance applies to this arm (lookandpick.safety.Safety.for_arm)
     GRASP_TOLERANCE_DEG = 30.0       # how far the jaws may be from "across the pen" before the close misses (a sim rule, not physics)
 
-    def __init__(self, *, realtime=True, pen=False, props=()):
-        self.model = build_model(pen=pen, props=props)
-        self.specs = {**OBJECTS}
+    def __init__(self, *, realtime=True, pen=False, props=(), layout='default'):
+        self.layout = make_layout(layout)
+        self.model = build_model(pen=pen, props=props, layout_name=layout)
+        self.specs = {**self.layout['objects']}
         for prop in sorted(set(props) | ({'pen'} if pen else set())):
             self.specs.update(PROPS[prop])
         self.grasp_yaw_deg = None
@@ -165,7 +166,7 @@ class Simulation:
 
     def place_prop(self, name, x, y, yaw_deg):
         """Lay an opt-in prop (e.g. 'obj3', the pen) upright or flat at (x, y), turned yaw_deg about the vertical. Only while idle."""
-        if name not in self.specs or name in OBJECTS:
+        if name not in self.specs or name in self.layout['objects']:
             raise ValueError('This simulation was built without that prop')
         if self.command_lock.locked():
             raise ValueError('Place props only while idle')
@@ -294,7 +295,7 @@ class Simulation:
     def replay(self):
         with self.lock:
             return {'version':1, 'mode':'simulation', 'seed':self.seed, 'frame':'marker centre; metres; z up',
-                    'arm_base_offset':ARM_BASE_OFFSET, 'frames':list(self.trace), 'events':list(self.events)}
+                    'arm_base_offset':self.layout['base'], 'arm_base_yaw_deg':self.layout['base_yaw_deg'], 'frames':list(self.trace), 'events':list(self.events)}
 
     def snapshot(self):
         """Existing WorldState scene schema for mission-control consumers."""
@@ -538,7 +539,7 @@ class Simulation:
 
     def state(self):
         with self.lock:
-            return {'mode': 'simulation', 'robot': 'SO-101', 'frame':'marker centre; metres; z up', 'arm_base_offset':ARM_BASE_OFFSET, 'time_s': round(self.data.time, 3),
+            return {'mode': 'simulation', 'robot': 'SO-101', 'frame':'marker centre; metres; z up', 'arm_base_offset':self.layout['base'], 'arm_base_yaw_deg':self.layout['base_yaw_deg'], 'layout':self.layout['name'], 'time_s': round(self.data.time, 3),
                     'joints': {n: {'position': float(q), 'lower': float(l[0]), 'upper': float(l[1])}
                                for n, q, l in zip(JOINTS, self.data.qpos[self.qids], self.limits)},
                     'scene': {'arm_position': self.position, 'objects': [vars(o) for o in self.objects()],

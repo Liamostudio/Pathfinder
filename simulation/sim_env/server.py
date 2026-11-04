@@ -18,8 +18,8 @@ WEB = Path(__file__).resolve().parents[1] / 'web'
 
 
 class Session:
-    def __init__(self, *, render=True, realtime=True, camera_options=None):
-        self.sim = Simulation(realtime=realtime)
+    def __init__(self, *, render=True, realtime=True, camera_options=None, layout='default'):
+        self.sim = Simulation(realtime=realtime, layout=layout)
         self.cameras = Cameras(self.sim, **(camera_options or {})) if render else None
         self.jobs = {}
         self.lock = threading.Lock()
@@ -215,13 +215,14 @@ def handler_for(session):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port',type=int,default=8766)
+    parser.add_argument('--layout',choices=['default','workspace'],default='default',help="'workspace': the arm base at the measured foot position and facing, and the cubes on the real table in front of it")
     parser.add_argument('--no-render',action='store_true',help='Controller/physics only, no OpenGL required')
     parser.add_argument('--resolution', choices=['640x360','1280x720'], default='640x360')
     parser.add_argument('--fps', type=int, choices=range(1,31), default=10)
     parser.add_argument('--calibration-dir', type=Path)
     args = parser.parse_args()
     width, height = map(int,args.resolution.split('x'))
-    session = Session(render=not args.no_render, camera_options={'width':width,'height':height,'fps':args.fps,'calibration_dir':args.calibration_dir})
+    session = Session(render=not args.no_render, layout=args.layout, camera_options={'width':width,'height':height,'fps':args.fps,'calibration_dir':args.calibration_dir})
     server = ThreadingHTTPServer(('127.0.0.1',args.port),handler_for(session))
     print(f'SO-101 simulation: http://127.0.0.1:{server.server_port}',flush=True)
     try:

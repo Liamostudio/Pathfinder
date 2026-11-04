@@ -23,3 +23,16 @@ test('a previous instruction status cannot narrate a new command',()=>{const vie
 test('recorded frames share the live renderer contract and expose a labelled stop',async()=>{const {RecordedTake}=await import('../../lookandpick/web/run-scene.js');const take=new RecordedTake({frames:[{...frame,t:0},{...frame,t:1,stopped:true,stop:{kind:'person',reason:'Recorded STOP'}}],events:[{t:0,source:'Arm',output:'Moving'},{t:1,source:'Safety',output:'Stopped'}]});assert.equal(take.frame(.5).t,0);const end=take.frame(10);assert.equal(end.t,1);assert.equal(end.replay,true);assert.equal(captionView(end).phase,'Take 1');assert.match(captionView(end).stop.recovery,/Recorded stop/);assert.equal(runRobot(end,manifest).joints.shoulder_pan,.25);assert.throws(()=>new RecordedTake({frames:[{t:0,scene:{}}]}));});
 test('voice captions show the transcript output, not audio metadata or a previous answer',()=>{const events=[{source:'Muse Spark',input:'Old command',output:'Old answer'},{source:'Muse Voice Transcribe',input:'2.0 s of speech',output:'Pick the blue cube'},{source:'Meta glasses',input:'transcript ready / awaiting confirmation',output:'Pick the blue cube'}],view=captionView({...frame,events});assert.equal(view.command,'Pick the blue cube');assert.equal(view.answer,'');assert.match(view.status,/awaiting your confirmation/);});
 test('only the remaining waypoints are dashed as the TCP advances',async()=>{const {remainingRoute}=await import('../../lookandpick/web/run-scene.js');const vertices=new Float32Array([0,0,0,1,1,1,0,0,1,0,0,.2,1,1,1,0,0,1,.2,0,.2,1,1,1,0,0,1]);const remaining=remainingRoute(vertices,[.1,0,.2]);assert.equal(remaining.length,18);assert.ok(Math.abs(remaining[0]-.1)<1e-6);assert.ok(Math.abs(remaining[9]-.2)<1e-6);});
+
+test('the workspace layout draws the simulated foot square to the table and keeps the arm pointing where the simulator says',()=>{
+ const m={...manifest,robot:{pan_draw_offset_deg:-41.87196561907157}},f={...frame,arm_base_yaw_deg:138.12803438092843};
+ const r=runRobot(f,m),pan=.25+(-41.87196561907157*Math.PI/180);
+ assert.ok(Math.abs(r.joints.shoulder_pan-pan)<1e-9);
+ // the foot's +x axis is marker yaw 180 degrees: marker (-1,0) mapped through the marker matrix (scale .5)
+ const expected=markerMatrix(m).slice(0,3).map(row=>-row[0]),got=r.base.slice(0,3).map(row=>row[0]);
+ got.forEach((v,i)=>assert.ok(Math.abs(v-expected[i])<1e-9,'foot axis '+i));
+ // pan-zero direction = foot yaw + draw offset = the simulator's base yaw (138.13), so foot + shoulder_pan(0) lands on it
+ assert.ok(Math.abs((180-41.87196561907157)-138.12803438092843)<1e-9);
+ // without a base yaw (the default layout) nothing is changed
+ assert.equal(runRobot(frame,m).joints.shoulder_pan,.25);
+});

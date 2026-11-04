@@ -7,7 +7,12 @@ export function runRobot(frame,manifest){
  const matrix=markerMatrix(manifest),offset=frame?.arm_base_offset;
  if(!matrix||!finitePoint(offset)||!frame.joints||!Object.keys(frame.joints).length)return null;
  const joints={};for(const [name,row] of Object.entries(frame.joints)){const value=typeof row==='number'?row:row?.position;if(!Number.isFinite(value))return null;joints[name]=value;}
- // Simulator joint values are URDF radians, with no real-arm draw offset.
+ // Simulator joint values are URDF radians. In the default layout the base faces along the marker x axis and there is nothing to correct. In the
+ // 'workspace' layout the simulated base stands where the tip-touch calibration measured the real one, facing the calibrated pan-zero direction
+ // (arm_base_yaw_deg). The physical foot is square to the table edge, so draw the foot at (pan-zero yaw - draw offset) and add the draw offset to
+ // shoulder_pan: the arm still points where the simulator's kinematics say, and the foot sits like the real one.
+ const yaw=Number(frame?.arm_base_yaw_deg)||0,drawOffset=Number(manifest?.robot?.pan_draw_offset_deg)||0;
+ if(yaw){joints.shoulder_pan=(joints.shoulder_pan??0)+drawOffset*Math.PI/180;return {base:mul(matrix,xyz(offset,[0,0,(yaw-drawOffset)*Math.PI/180])),joints};}
  return {base:mul(matrix,xyz(offset)),joints};
 }
 export function runItems(frame,manifest){

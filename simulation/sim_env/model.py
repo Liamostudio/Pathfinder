@@ -12,6 +12,37 @@ OBJECTS = {'obj1': ('red cube', (0.23, 0.10, 0.018), (0.92, 0.16, 0.13, 1)),
            'obj2': ('blue cube', (0.22, -0.13, 0.018), (0.12, 0.46, 0.92, 1))}
 # Opt-in prop for the grasp-orientation work: a pen lying flat (box 140 x 10 x 10 mm). Absent by default so existing scenes,
 # scenarios and seeds are untouched.
+# Layouts. 'default' is the simulator's own world (the placeholder base, cubes 22 cm out) and what every test and seed assumes. 'workspace' puts the arm
+# base where the tip-touch calibration MEASURED it (position and yaw) and the cubes on the real table in front of the arm, so the simulated arm stands
+# where the real one does in the scan. The base pose is read from the calibration file: one source of truth.
+def _calibrated_base():
+    import json
+    from lookandpick.adapters.so101_profile import TOUCH_CALIBRATION
+    frame = json.loads(Path(TOUCH_CALIBRATION).read_text())['base_frame']
+    return (float(frame['offset_m'][0]), float(frame['offset_m'][1]), 0.0), float(frame['yaw_deg'])
+
+
+def _in_front_of_arm(base, yaw_deg, forward_m, left_m, z=0.018):
+    """A table point `forward_m` ahead of the arm (along its pan-zero direction) and `left_m` to its left, in the marker frame."""
+    import math
+    c, s = math.cos(math.radians(yaw_deg)), math.sin(math.radians(yaw_deg))
+    return (round(base[0] + forward_m * c - left_m * s, 4), round(base[1] + forward_m * s + left_m * c, 4), z)
+
+
+def layout(name='default'):
+    if name == 'default':
+        return {'name': 'default', 'base': ARM_BASE_OFFSET, 'base_yaw_deg': 0.0, 'objects': OBJECTS}
+    if name == 'workspace':
+        base, yaw = _calibrated_base()
+        return {'name': 'workspace', 'base': base, 'base_yaw_deg': yaw,
+                'objects': {'obj1': ('red cube', _in_front_of_arm(base, yaw, WORKSPACE_RED[0], WORKSPACE_RED[1]), OBJECTS['obj1'][2]),
+                            'obj2': ('blue cube', _in_front_of_arm(base, yaw, WORKSPACE_BLUE[0], WORKSPACE_BLUE[1]), OBJECTS['obj2'][2])}}
+    raise ValueError(f'unknown layout {name!r}')
+
+
+WORKSPACE_RED = (0.27, 0.02)      # (forward, left) in metres from the measured base, along the pan-zero direction
+WORKSPACE_BLUE = (0.25, -0.12)
+
 PEN = {'obj3': ('pen', (0.20, 0.0, 0.005), (0.10, 0.12, 0.55, 1))}
 PEN_HALF_SIZE = (0.07, 0.005, 0.005)
 # More opt-in items for the same work: an upright can (compact: any yaw) and a small toy duck (an ellipsoid body plus a sphere head: it
@@ -25,7 +56,8 @@ PROP_GEOMS = {'obj3': [('box', PEN_HALF_SIZE, (0, 0, 0), 0.015)],
 ELONGATED = {'obj3', 'obj5'}          # props with a long axis along the body's x: the jaws must close across it
 
 
-def build_model(pen=False, props=()):
+def build_model(pen=False, props=(), layout_name='default'):
+    arrangement = layout(layout_name)
     source = ROOT / 'assets/so101/so101_new_calib.urdf'
     urdf = ET.parse(source).getroot()
     for mesh in urdf.findall('.//mesh'):
@@ -52,7 +84,12 @@ def build_model(pen=False, props=()):
                   rgb1='0.17 0.21 0.25', rgb2='0.20 0.25 0.29')
     ET.SubElement(asset, 'material', name='tabletop', texture='grid', texrepeat='12 10', reflectance='0.1')
     world = root.find('worldbody')
-    root.find(".//body[@name='base_link']").set('pos', ' '.join(map(str, ARM_BASE_OFFSET)))
+    base_body = root.find(".//body[@name='base_link']")
+    base_body.set('pos', ' '.join(map(str, arrangement['base'])))
+    if arrangement['base_yaw_deg']:
+        import math
+        half = math.radians(arrangement['base_yaw_deg']) / 2
+        base_body.set('quat', f'{math.cos(half)} 0 0 {math.sin(half)}')
     ET.SubElement(asset, 'texture', name='aruco', type='2d', file=str(ROOT / 'assets/marker.png'))
     ET.SubElement(asset, 'material', name='aruco', texture='aruco', texuniform='false', reflectance='0', emission='0.4')
     ET.SubElement(world, 'geom', name='marker', type='plane', pos='0 0 0.0005', size='0.075 0.075 0.001',
@@ -61,7 +98,7 @@ def build_model(pen=False, props=()):
     ET.SubElement(world, 'geom', name='table', type='box', pos='0.2 0 -0.025', size='0.6 0.5 0.025', material='tabletop', conaffinity='3')
     ET.SubElement(world, 'geom', name='drop_zone', type='box', pos='0.18 -0.20 0.001', size='0.055 0.055 0.001',
                   rgba='0.25 0.75 0.58 0.5', contype='0', conaffinity='0')
-    for name, (_, position, colour) in OBJECTS.items():
+    for name, (_, position, colour) in arrangement['objects'].items():
         body = ET.SubElement(world, 'body', name=name, pos=' '.join(map(str, position)))
         ET.SubElement(body, 'freejoint', name=name+'_free')
         ET.SubElement(body, 'geom', name=name+'_geom', type='box', size='0.018 0.018 0.018', mass='0.025',
