@@ -100,6 +100,30 @@ def make_demo(rig, hands, config, *, keys=lambda: None, supply_check=lambda v: N
                         config=config, keys=keys, sleep=sleep, log=log)
 
 
+def watch_pose(rig, hands, config, *, sleep=time.sleep, out=print, limit=None):
+    """Read-only: show where the arm is and whether the sweep would be accepted from here, until Ctrl-C (or `limit` lines)."""
+    tip_of, _, _ = build_geometry()
+    out("Move the arm by hand (torque is OFF). The line says OK once the sweep plan would be accepted. Ctrl-C to finish.")
+    shown = 0
+    try:
+        while limit is None or shown < limit:
+            pos = rig.positions()
+            tip = tip_of(pos)
+            try:
+                make_demo(rig, hands, config)
+                verdict = "OK: sweep plan accepted from here"
+            except DemoRefused as exc:
+                verdict = "not yet: " + str(exc).split(".")[0][:90]
+            sight = "seeing" if hands.read().ok else "BLIND"
+            out("\r\x1b[2K" + "pan %6.1f lift %6.1f elbow %6.1f wrist %6.1f | tip %.2f %.2f %.2f | %s | %s"
+                % (pos["shoulder_pan"], pos["shoulder_lift"], pos["elbow_flex"], pos["wrist_flex"], *tip, sight, verdict), end="", flush=True) \
+                if out is print else out(f"{pos['wrist_flex']:.1f} {verdict}")
+            shown += 1
+            sleep(0.3)
+    except KeyboardInterrupt:
+        out("")
+
+
 def wait_for_sight(hands, seconds=3.0):
     end = time.monotonic() + seconds
     while time.monotonic() < end:
@@ -123,6 +147,8 @@ def main(argv=None, *, ask=input) -> None:
     p.add_argument("--speed", type=float, default=0.3, help="fraction of the commissioned 10 deg/s (default 0.3, at most 0.5)")
     p.add_argument("--torque-limit", type=int, default=TORQUE_LIMIT, choices=range(100, 1001), metavar="100-1000")
     p.add_argument("--status-port", type=int, default=0, help="serve the demo's gate state on this loopback port for Deck's hand-gate panel (0 = off)")
+    p.add_argument("--watch", action="store_true", help="read-only live view while you move the arm by hand: positions, tip, and whether the sweep plan "
+                   "would be accepted. Torque stays off. Ctrl-C to finish.")
     p.add_argument("--check", action="store_true", help="read-only check: torque stays off, nothing moves")
     p.add_argument("--hold-only", action="store_true", help="torque on, goals = present for ~10 s, nothing moves; prints the supply voltage")
     a = p.parse_args(argv)
@@ -150,6 +176,9 @@ def main(argv=None, *, ask=input) -> None:
         hands.start()
         sight = wait_for_sight(hands)
         print(f"Deck hands: {'seeing, ' + str(len(sight.hands)) + ' hand(s)' if sight.ok else 'CANNOT SEE (' + sight.why + ')'}")
+        if a.watch:
+            watch_pose(rig, hands, config)
+            return
         try:
             demo = make_demo(rig, hands, config)
         except DemoRefused as exc:

@@ -511,3 +511,15 @@ def test_a_bad_work_area_is_refused():
     for bad in ((0.9, 0.3, -0.5, 0.5), (0.3, 0.9, 0.5, -0.5), (0.3, 0.9, -0.5, float("nan")), (1, 2, 3)):
         with pytest.raises(ValueError):
             DemoConfig(work_area=bad)
+
+
+def test_watch_mode_is_read_only_and_says_when_the_plan_would_be_accepted(monkeypatch):
+    script, bus = load_script("demo_watch"), FakeBus()
+    bus.present["wrist_flex"] = bus.goals["wrist_flex"] = -94.0               # Liam's folded wrist: tip above the ceiling, inside the minimum reach
+    patch_script(script, monkeypatch, bus)
+    seen = []
+    from lookandpick.real_arm_demo import DemoConfig as Cfg
+    script.watch_pose(script.BusRig(bus), SeeingHands(), Cfg(), sleep=lambda s: bus.present.update(wrist_flex=bus.present["wrist_flex"] + 40), out=seen.append, limit=3)
+    assert seen[1].startswith("-94.0 not yet")
+    assert seen[-1].endswith("OK: sweep plan accepted from here")
+    assert not bus.enabled and not bus.goal_writes
