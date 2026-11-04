@@ -45,6 +45,9 @@ class Runtime:
         self.tools = Tools(WorldState(), self.tracker, self.arm, self.safety, say=self._speak, announce=self._announce)
         self.model = model
         self.orchestrator = Orchestrator(model, self.tools, log=self.log)
+        if scene is not None:                           # a camera scene: look again for a lost object, and check a grip by seeing the object rise
+            self.tools.relook = scene.refresh
+            self.tools.verify_lift = True
         self.tools.holds_through_stops = True           # a stop mid-action holds it: 'carry on' resumes, 'cancel' or reset ends it
         self._resetting = False
         self._busy = 0                                  # instructions currently running (0 or 1)
@@ -87,8 +90,13 @@ class Runtime:
         finally:
             with self._busy_lock:
                 self._busy -= 1
-        if self.tools.cancelled and not self.safety.stopped and not self._resetting:      # the instruction was cancelled: fold back to Rest
+        if self.safety.stopped or self._resetting:
+            return result
+        if self.tools.cancelled:                                      # the instruction was cancelled: fold back to Rest
             self.tools.begin_instruction()
+            self.tools.go_rest()
+        elif self.tools.gave_up:                                      # it could not be done (and waiting will not change that): say so, then Rest
+            self.tools.gave_up = False
             self.tools.go_rest()
         return result
 

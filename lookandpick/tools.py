@@ -15,6 +15,10 @@ from .safety import Safety, valid_position
 from .world import Hand, TrackedObject, Vec3, WorldState
 
 HOVER_M = 0.10
+LOOK_S = 10.0            # how long to look again for an object that left the view
+MAX_GRIPS = 3            # grip attempts before giving up
+MOVED_M = 0.01           # a target that moved more than this is re-aimed at
+SPOT_CLEARANCE_M = 0.04  # a drop spot closer than this to another object is "taken" (cubes are 3.6 cm)
 POLL_S = 0.05            # how often a paused move re-checks the hands
 REMIND_S = 20.0          # "still waiting" reminder interval
 
@@ -43,6 +47,10 @@ class Tools:
         self._block_reason: str | None = None
         self._action_lock = threading.Lock()
         self._cancelled = threading.Event()     # a person's "cancel": ends the current instruction, latches nothing
+        self.relook = None                      # a callable that asks the scene to look at the table again (SAM); set by the Runtime
+        self.look_s, self.max_grips, self.moved_m, self.spot_clearance_m = LOOK_S, MAX_GRIPS, MOVED_M, SPOT_CLEARANCE_M
+        self.verify_lift = False                # True with a camera tracker: after closing, check the object rose with the gripper
+        self.gave_up = False                    # the instruction ended for a reason that waiting will not change; the runtime folds back to Rest
         self.holds_through_stops = False        # True under the Runtime: a stop mid-action HOLDS it (a person says 'carry on' or 'cancel'; a fault recovers)
         self._held_origin: dict[str, Vec3] = {}  # where each held object was picked up, so Rest can put it back
         self.waits_for_hands = True             # False only for the scripted fake Deck backend, which has no live watchdog to wait for
@@ -56,8 +64,9 @@ class Tools:
         return self._cancelled.is_set()
 
     def begin_instruction(self) -> None:
-        """A new instruction from a person clears an earlier cancel."""
+        """A new instruction from a person clears an earlier cancel (and an earlier give-up)."""
         self._cancelled.clear()
+        self.gave_up = False
 
     def cancel(self) -> str:
         """End the current instruction without latching anything: a move in flight is dropped (the arm holds where it is)
@@ -200,6 +209,63 @@ class Tools:
         self._refresh()
         return self.world.snapshot()
 
+    # -- finding the target again, and giving up only for reasons that waiting or trying again will not fix --------------------------------
+    def _unreachable(self) -> bool:
+        """The arm says the last target is out of reach (outside its workspace or no collision-free solution)."""
+        state = getattr(self.arm, "state", None)
+        try:
+            reason = str(state().get("reason", "")) if callable(state) else ""
+        except Exception:
+            return False
+        return reason.startswith(("Target outside", "No collision-free"))
+
+    def _give_up(self, result: str, sentence: str) -> str:
+        """End the instruction for a reason that waiting will not change: one sentence for the user (why, and what would help), and the runtime then
+        folds the arm back to Rest. The tool result carries the reason back to the model."""
+        self.gave_up = True
+        self.announce(sentence)
+        return f"blocked: {result}"
+
+    def _look_for(self, id: str, label: str) -> dict | None:
+        """The object's fresh record, or None if it cannot be found within `look_s`. Says so, and asks the scene to look again (SAM) while it waits."""
+        self._refresh()
+        found = next((o for o in self.world.snapshot()['objects'] if o['id'] == id), None)
+        if found is not None:
+            return found
+        self.announce(f"Lost sight of the {label}, looking again")
+        deadline = time.monotonic() + self.look_s
+        while time.monotonic() < deadline:
+            if self.safety.stopped or self._cancelled.is_set():
+                return None
+            if self.relook is not None:
+                try:
+                    self.relook()
+                except Exception:                  # the scene may be unavailable for a moment; keep looking until the time is up
+                    pass
+            self._refresh()
+            found = next((o for o in self.world.snapshot()['objects'] if o['id'] == id), None)
+            if found is not None:
+                return found
+            self._cancelled.wait(0.5)
+        return None
+
+    def _held_by_vision(self, id: str) -> bool:
+        """Did the object rise with the gripper? Only meaningful with a camera tracker (`verify_lift`); a simulator reports its own grip."""
+        self._refresh()
+        obj = next((o for o in self.world.snapshot()['objects'] if o['id'] == id), None)
+        if obj is None:
+            return True                            # hidden by the gripper: treat as held
+        return obj['held'] or math.dist(obj['position'], self.arm.position) < 0.04          # it came up with the gripper
+
+    def _cant_find(self, label: str) -> str:
+        return self._give_up(f"cannot find the {label} after looking for {self.look_s:.0f} s",
+                             f"I can't find the {label}; put it back in view and I'll try again.")
+
+    def _pick_failed(self, label: str) -> str:
+        if self._unreachable():
+            return self._give_up(f"the {label} is out of reach", f"I can't reach the {label} from here; move it closer and I'll try again.")
+        return f"blocked: {self._block_reason or 'safety gate or arm refused the action'}"
+
     @_one_action
     def pick(self, id: str) -> str:
         self._block_reason = None
@@ -214,18 +280,54 @@ class Tools:
         obj = next((o for o in objects if o['id'] == id), None)
         if obj is None:
             return f"error: no object with id {id}"
-        target = obj['position']
-        if not valid_position(target):
+        label = obj['label']
+        if not valid_position(obj['position']):
             return "blocked: invalid target coordinates"
-        above = (target[0], target[1], target[2] + HOVER_M)
-        self._aim_gripper(obj.get('grasp_yaw_deg'))
-        if not (self._move(above) and self._move(target) and self._grip(True)):
-            return f"blocked: {self._block_reason or 'safety gate or arm refused the action'}"
+        for attempt in range(1, self.max_grips + 1):
+            obj = self._look_for(id, label)                       # fresh position before the approach
+            if obj is None:
+                return "blocked: cancelled" if self._cancelled.is_set() else "blocked: stopped" if self.safety.stopped else self._cant_find(label)
+            target = obj['position']
+            if not valid_position(target):
+                return "blocked: invalid target coordinates"
+            above = (target[0], target[1], target[2] + HOVER_M)
+            self._aim_gripper(obj.get('grasp_yaw_deg'))
+            if not self._move(above):
+                return self._pick_failed(label)
+            fresh = self._look_for(id, label)                     # and again before the final descent: it may have been moved
+            if fresh is None:
+                return "blocked: cancelled" if self._cancelled.is_set() else "blocked: stopped" if self.safety.stopped else self._cant_find(label)
+            if math.dist(fresh['position'], target) > self.moved_m:
+                obj, target = fresh, fresh['position']
+                above = (target[0], target[1], target[2] + HOVER_M)
+                self._aim_gripper(obj.get('grasp_yaw_deg'))
+                if not self._move(above):
+                    return self._pick_failed(label)
+            if not self._move(target):
+                return self._pick_failed(label)
+            if self._grip(True) and (not self.verify_lift or self._lifted(id, above)):
+                break
+            if self.safety.stopped or self._cancelled.is_set():
+                return "blocked: cancelled" if self._cancelled.is_set() else f"blocked: {self._block_reason or 'safety gate or arm refused the action'}"
+            if attempt < self.max_grips:                          # a missed grip: open, back off, look again, try again
+                self.announce("Missed it, trying again")
+                self._grip(False)
+                if not self._move(above):
+                    return self._pick_failed(label)
+        else:
+            return self._give_up(f"missed the {label} {self.max_grips} times", f"I keep missing the {label}; check it is within reach and I'll try again.")
         self.world.set_held(TrackedObject(**obj), True, self.arm.position)
         self._held_origin[obj['id']] = (float(target[0]), float(target[1]), float(target[2]))
         if not self._move(above):
             return f"blocked: holding {obj['label']}; retreat incomplete"
+        self.gave_up = False
         return f"picked {obj['label']}"
+
+    def _lifted(self, id: str, above: Vec3) -> bool:
+        """After closing on it with a camera tracker: lift a little and see whether the object came too (it did not if it is still on the table)."""
+        if not self._move((above[0], above[1], above[2] - HOVER_M / 2)):
+            return False
+        return self._held_by_vision(id)
 
     @_one_action
     def place(self, id: str, loc: Vec3) -> str:
@@ -235,18 +337,25 @@ class Tools:
         if self._cancelled.is_set():
             return "blocked: cancelled"
         self._refresh()
-        obj = next((o for o in self.world.snapshot()['objects'] if o['id'] == id), None)
+        snapshot = self.world.snapshot()['objects']
+        obj = next((o for o in snapshot if o['id'] == id), None)
         if obj is None or not obj['held']:
             return f"error: {id} is not held"
         if not valid_position(loc):
             return "blocked: invalid target coordinates"
+        taken = next((o for o in snapshot if o['id'] != id and math.dist(o['position'][:2], loc[:2]) < self.spot_clearance_m), None)
+        if taken is not None:
+            return f"blocked: that spot is taken by the {taken['label']}; choose a free spot beside it"
         above = (loc[0], loc[1], loc[2] + HOVER_M)
         if not (self._move(above) and self._move(loc) and self._grip(False)):
+            if self._unreachable():
+                return self._give_up(f"the drop spot is out of reach", f"I can't reach that spot from here; choose a spot nearer the arm and I'll try again.")
             return f"blocked: {self._block_reason or 'safety gate or arm refused the action'}"
         self.world.set_held(TrackedObject(**obj), False, self.arm.position)
         self._held_origin.pop(obj['id'], None)
         if not self._move(above):
             return f"blocked: released {obj['label']}; retreat incomplete"
+        self.gave_up = False
         return f"placed {obj['label']}"
 
     def stop(self) -> str:
