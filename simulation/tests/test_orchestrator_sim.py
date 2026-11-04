@@ -58,6 +58,10 @@ def test_a_hand_that_stays_can_be_cancelled_without_latching_the_simulation(brid
     thread.start()
     time.sleep(0.5)
     assert runtime.command("cancel").reply == "cancelled"
+    assert not client.state()['stopped']
+    # Task 2 now folds to Rest after cancellation. That checked move may wait
+    # for the same hand, so clear it before waiting for the whole command to end.
+    client.action('hand',position=None)
     thread.join(10)
     assert done and done[0].steps[0]["result"] == "blocked: cancelled"
     assert client.state()["stopped"] is False and client.state()["held"] is None

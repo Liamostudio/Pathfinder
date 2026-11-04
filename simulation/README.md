@@ -138,6 +138,42 @@ All endpoints bind to 127.0.0.1, reject foreign Host/Origin headers and make no 
 
 Actions: `pick {id}`, `place {id, position}`, `move {position, speed_scale}`, `joints {positions: six radians}`, `grip {closed}`, `speed {scale}`, `hand {position: XYZ or null}`, `camera {name, pose}`, `stop`, `reset`. Stop, hand and speed changes bypass a running job. Job history is bounded to 100 entries.
 
+Additional motion actions (4 November):
+
+- `cancel` drops the active target and holds without latching. `resume` clears a
+  latch without resetting the scene; the controller owns recovery decisions.
+- `rest {speed_scale?: 1}` is a job, using the same servo, full-arm hand checks,
+  collision checks and pause/cancel/STOP behaviour as other joint moves. It uses
+  `REST_READING`, the committed touch-calibration offsets and the shared LeRobot
+  → URDF joint mapping. Shoulder/elbow readings back off three degrees from their
+  recorded end stops; arm targets also stay three degrees inside URDF limits.
+  Gripper aperture and any held object are preserved. Rest does not reset objects
+  or clear a stop. A direct fold is preflighted; if blocked, a bounded search tries
+  checked one-joint-at-a-time folds. Actual servo steps still check collisions.
+  With no clear fold it refuses. `rest_position` in state gives its marker-frame
+  TCP destination for the controller's hand/no-go check. Manual-zone validation
+  remains with the controller; this is not physical-arm commissioning.
+- `reachable {position: [x,y,z]}` is a read-only, collision-aware endpoint IK
+  query for waypoint planning. It never moves the arm or approves a whole path.
+
+Deterministic **test hooks**, available while idle or during a running job:
+
+- `nudge {name: "obj1", dx: 0.03, dy: 0}` moves a free object in metres, at most
+  10 cm per XY axis per call. It returns false for a held object, leaves other
+  objects and the current arm target intact, and rejects invalid/out-of-bounds input.
+- `grip_miss_once` makes the next completed close of an empty gripper miss, then
+  clears itself. Opening, an interrupted close or an already-held object does not
+  consume it. It can also be armed via the engine's `faults` set.
+- `hide {name: "obj1", hidden: true}` removes the object from tracker results and
+  camera RGB/depth/segmentation; `hidden: false` restores it. Physics contacts and
+  object position remain intact. Frames include `scene_revision`; stale cached
+  frames are not returned after a hook: reads wait up to two seconds for a fresh
+  frame, then report unavailable if rendering has not caught up.
+
+`SimulationClient` exposes matching `rest`, `rest_position`, `reachable`, `nudge`,
+`grip_miss_once` and `hide` methods. Scene reset clears the injected hooks. These
+are explicit simulation faults/test controls, not detected real-world changes.
+
 ## Open source used
 
 [MuJoCo](https://github.com/google-deepmind/mujoco) provides dynamics/rendering. The SO-101 URDF and 13 meshes are vendored unmodified from [TheRobotStudio/SO-ARM100](https://github.com/TheRobotStudio/SO-ARM100), under its Apache 2.0 licence. `assets/so101/SOURCE.json` records the source revision; `LICENSE.upstream` preserves the licence. The runtime MJCF applies the lime material, marker-frame base offset and simulation contact settings. New simulator, bridge, UI, scenario and test code was written during this hackathon.

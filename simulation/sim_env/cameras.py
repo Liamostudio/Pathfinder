@@ -64,12 +64,17 @@ class Cameras:
                     'ready': bool(self.frames), 'width': self.width, 'height': self.height}
 
     def frame(self, name):
-        with self.lock:
-            if name not in PRESETS:
-                raise ValueError('Unknown camera')
-            if name not in self.frames:
-                raise RuntimeError(self.error or 'Renderer starting')
-            return self.frames[name]
+        if name not in PRESETS:raise ValueError('Unknown camera')
+        deadline=time.monotonic()+2
+        while not self.stop.is_set():
+            with self.sim.lock:revision=self.sim.scene_revision
+            with self.lock:
+                frame=self.frames.get(name)
+                if frame and frame['metadata'].get('scene_revision')==revision:return frame
+                error=self.error
+            if error or time.monotonic()>=deadline:raise RuntimeError(error or 'Waiting for a fresh frame after a simulation test hook')
+            self.stop.wait(.005)
+        raise RuntimeError('Renderer closed')
 
     def _run(self):
         renderer = None
@@ -86,6 +91,7 @@ class Cameras:
                     data.mocap_pos[:] = self.sim.data.mocap_pos
                     data.mocap_quat[:] = self.sim.data.mocap_quat
                     data.time = self.sim.data.time
+                    scene_revision=self.sim.scene_revision
                     mujoco.mj_forward(self.sim.model, data)
                 # Scene construction reads mutable model hand visibility too.
                 with self.lock:
@@ -100,6 +106,7 @@ class Cameras:
                         camera.lookat[:] = pose['lookat']
                         camera.azimuth, camera.elevation, camera.distance = pose['azimuth'], pose['elevation'], pose['distance']
                     with self.sim.lock:
+                        if self.sim.scene_revision!=scene_revision:continue
                         renderer.update_scene(data, camera=camera)
                     rgb = renderer.render().copy()
                     renderer.enable_depth_rendering()
@@ -117,7 +124,7 @@ class Cameras:
                     world_from_camera[:3, :3] = np.column_stack((right, -up, forward))
                     world_from_camera[:3, 3] = position
                     f = self.height / (2 * math.tan(math.radians(self.sim.model.vis.global_.fovy) / 2))
-                    metadata = {'name': name, 'time_s': float(data.time), 'timestamp': time.monotonic(),
+                    metadata = {'name': name, 'time_s': float(data.time), 'timestamp': time.monotonic(), 'scene_revision':scene_revision,
                                 'width':self.width, 'height':self.height, 'K': [[f,0,self.width/2],[0,f,self.height/2],[0,0,1]],
                                 'dist': [0.,0.,0.,0.,0.],
                                 'world_from_camera': world_from_camera.tolist(),
