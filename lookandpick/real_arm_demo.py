@@ -145,6 +145,8 @@ class DeckHandSource:
 class DemoConfig:
     amplitude_m: float = 0.04            # tip travel each side of the start, along the pan arc (about 4 cm)
     cycles: int = 2                      # left-right-left passes before the demo ends and folds
+    continuous: bool = False             # keep sweeping until the operator folds (q / f); `cycles` is then ignored
+    work_area: tuple[float, float, float, float] | None = None   # marker-frame x0, x1, y0, y1 (m): any hand inside freezes the arm
     speed_fraction: float = 0.3          # of the commissioned 10 deg/s: 3 deg/s at scale 1
     fold_speed_fraction: float = 0.5
     tick_s: float = 0.05
@@ -167,6 +169,10 @@ class DemoConfig:
             raise ValueError("sweep amplitude must be between 0.5 cm and 6 cm")
         if not 0 < self.speed_fraction <= 0.5 or not 0 < self.fold_speed_fraction <= 0.5:
             raise ValueError("speed fractions must be above 0 and at most 0.5 of the commissioned speed")
+        if self.work_area is not None:
+            if len(self.work_area) != 4 or not all(math.isfinite(v) for v in self.work_area) \
+                    or not self.work_area[0] < self.work_area[1] or not self.work_area[2] < self.work_area[3]:
+                raise ValueError("work area must be x0 x1 y0 y1 in metres with x0 < x1 and y0 < y1")
         if not 1 <= self.cycles <= 10 or not 0.02 <= self.tick_s <= 0.1 or not 0 < self.max_deg_s <= 10:
             raise ValueError("cycles 1..10, tick 20..100 ms, speed ceiling at most 10 deg/s")
 
@@ -310,6 +316,12 @@ class HandStopDemo:
         nearest = min((max(0.0, math.dist(h.position, tip) - h.radius_m) for h in hands), default=None)
         return scale, nearest
 
+    def _hand_in_work_area(self, hands: tuple[Hand, ...]) -> bool:
+        if self.cfg.work_area is None:
+            return False
+        x0, x1, y0, y1 = self.cfg.work_area
+        return any(x0 - h.radius_m <= h.position[0] <= x1 + h.radius_m and y0 - h.radius_m <= h.position[1] <= y1 + h.radius_m for h in hands)
+
     def _stall_check(self, present: dict[str, float], driven: bool) -> None:
         for name in ARM_JOINTS:
             history = self._seen[name]
@@ -365,12 +377,15 @@ class HandStopDemo:
         folding = self.mode == "folding" or self.fold_requested
         goal_tip = self.start_tip if folding else self.tip_of(dict(present, shoulder_pan=self.start["shoulder_pan"] + self._legs[self._leg]))
         scale, nearest = self._scale(reading.hands, tip, goal_tip)
+        in_area = self._hand_in_work_area(reading.hands)
+        if in_area:
+            scale = 0.0
         self.status.scale, self.status.nearest_m = scale, nearest
         if scale <= 0.0:
             self._freeze(present)
             self.clear_since = None
             self.status.mode = "frozen"
-            self.status.note = "hand near the path: held still"
+            self.status.note = "hand in the work area: held still" if in_area else "hand near the path: held still"
             if self.mode == "folding":
                 self.mode = "frozen"
                 self.fold_requested = True
@@ -419,6 +434,8 @@ class HandStopDemo:
         self._stall_check(present, driven=True)
         if abs(pan - target) < 1e-9 and abs(present["shoulder_pan"] - target) < self.cfg.arrive_tol_deg:
             self._leg += 1
+            if self.cfg.continuous and self._leg >= len(self._legs) - 1:      # keep swinging; the trailing "back to centre" leg is for finite runs
+                self._leg = 0
             if self._leg >= len(self._legs):
                 self.log("demo finished: folding back")
                 self.fold_requested = True

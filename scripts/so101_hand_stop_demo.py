@@ -117,6 +117,9 @@ def main(argv=None, *, ask=input) -> None:
     p.add_argument("--deck-url", default="http://127.0.0.1:8765", help="the live Deck (loopback only)")
     p.add_argument("--amplitude-cm", type=float, default=4.0, help="tip travel each side of the start (default 4, at most 6)")
     p.add_argument("--cycles", type=int, default=2, choices=range(1, 11), metavar="1-10")
+    p.add_argument("--continuous", action="store_true", help="keep sweeping until you press q or f (ignores --cycles)")
+    p.add_argument("--work-area", type=float, nargs=4, metavar=("X0", "X1", "Y0", "Y1"),
+                   help="marker-frame rectangle in metres: any hand inside it freezes the arm, however far from the tip")
     p.add_argument("--speed", type=float, default=0.3, help="fraction of the commissioned 10 deg/s (default 0.3, at most 0.5)")
     p.add_argument("--torque-limit", type=int, default=TORQUE_LIMIT, choices=range(100, 1001), metavar="100-1000")
     p.add_argument("--status-port", type=int, default=0, help="serve the demo's gate state on this loopback port for Deck's hand-gate panel (0 = off)")
@@ -124,7 +127,8 @@ def main(argv=None, *, ask=input) -> None:
     p.add_argument("--hold-only", action="store_true", help="torque on, goals = present for ~10 s, nothing moves; prints the supply voltage")
     a = p.parse_args(argv)
     try:
-        config = DemoConfig(amplitude_m=a.amplitude_cm / 100, cycles=a.cycles, speed_fraction=a.speed)
+        config = DemoConfig(amplitude_m=a.amplitude_cm / 100, cycles=a.cycles, speed_fraction=a.speed, continuous=a.continuous,
+                            work_area=tuple(a.work_area) if a.work_area else None)
     except ValueError as exc:
         raise SystemExit(f"Refused: {exc}") from None
     if a.port not in find_ports():

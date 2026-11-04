@@ -482,3 +482,32 @@ def test_script_sweep_flow_folds_on_q_and_releases_every_motor_once(monkeypatch,
     assert held and "Plan:" in out
     assert "folded" in out.lower() or "releasing torque" in out
     assert len(bus.disabled) == len(bus.motors), "each motor released exactly once, not again in the script's finally"
+
+
+def test_continuous_keeps_sweeping_past_the_finite_run_until_the_operator_folds():
+    demo, rig, hands, clock = make(config=DemoConfig(continuous=True, cycles=1, speed_fraction=0.5))
+    advance(demo, clock, 120)                                      # a finite 1-cycle run would have folded and released long ago
+    assert demo.mode == "sweeping" and not rig.released and not demo.fold_requested
+    pans = [w["shoulder_pan"] for w in rig.writes]
+    assert max(pans) > START["shoulder_pan"] + demo.amp_deg - 1 and min(pans) < START["shoulder_pan"] - demo.amp_deg + 1
+    demo.queue.append("f")
+    advance(demo, clock, 60)
+    assert rig.released and demo.status.folded
+
+
+def test_a_hand_inside_the_work_area_freezes_the_arm_however_far_from_the_tip_and_it_resumes_when_it_leaves():
+    area = (0.3, 0.9, -0.5, 0.5)                                   # tip is near x 0.2: the hand is far outside the slow band
+    demo, rig, hands, clock = make(config=DemoConfig(work_area=area))
+    advance(demo, clock, 1)
+    hands.reading = HandReading(True, (Hand("h", (0.8, 0.4, 0.05), 0.05),))
+    advance(demo, clock, 0.3)
+    assert demo.mode == "frozen" and "work area" in demo.status.note and not rig.released
+    hands.reading = HandReading(True, (Hand("h", (1.5, 0.4, 0.05), 0.05),))
+    advance(demo, clock, demo.cfg.resume_clear_s + 0.5)
+    assert demo.mode == "sweeping"
+
+
+def test_a_bad_work_area_is_refused():
+    for bad in ((0.9, 0.3, -0.5, 0.5), (0.3, 0.9, 0.5, -0.5), (0.3, 0.9, -0.5, float("nan")), (1, 2, 3)):
+        with pytest.raises(ValueError):
+            DemoConfig(work_area=bad)

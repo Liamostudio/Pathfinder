@@ -2,7 +2,7 @@
 
 Goal: show the REAL SO-101 freeze when a hand comes near, then fold back. It does not pick anything up. Software: `scripts/so101_hand_stop_demo.py` and `lookandpick/real_arm_demo.py`. **Everything below is run by Liam, at the bench, in a local terminal, with the 5V kill switch in reach.** Nothing in this repo powers the servos from a remote or unattended session.
 
-Status when written: the script was built and tested with a fake bus and fake hands only (`tests/test_real_arm_demo.py`, 37 tests). It has never run on the arm. Do not claim a real-arm hand stop anywhere until step 5 below has actually passed and `PROGRESS.md` says so.
+Status when written: the script was built and tested with a fake bus and fake hands only (`tests/test_real_arm_demo.py`, 40 tests). It has never run on the arm. Do not claim a real-arm hand stop anywhere until step 5 below has actually passed and `PROGRESS.md` says so.
 
 ## What it does
 - Sweeps ONE joint (shoulder pan) about 3 to 4 cm either side of where the session starts, at most 3 deg/s (commissioned ceiling is 10).
@@ -11,6 +11,7 @@ Status when written: the script was built and tested with a fake bus and fake ha
 - Folds back to the pose the session started in, slowly (at most 5 deg/s), hand-checked every step, stopping 2 degrees inside each calibrated end stop. Torque is released only when folded (the arm then settles the last few degrees onto its rest).
 - Cannot see (Deck down, answer older than 0.25 s, gate stale, malformed data): freezes, does NOT fold. Press `f` once it can see again, or cut the supply.
 - Supply collapse (below 3.8 V, or under 4.5 V three reads in a row), bus error: releases torque as the last resort and tells you to cut the 5V supply. A joint that stops following its command: holds still and waits for you.
+- Options: `--continuous` sweeps until you press `q`/`f` (instead of `--cycles`); `--work-area X0 X1 Y0 Y1` (marker-frame metres) freezes the arm whenever a hand is inside that rectangle, however far from the tip.
 - Keys: SPACE stop, `r` resume, `f` fold now, `q` fold then exit, `x` release torque (arm goes limp: support it). Ctrl-C = SPACE; twice within 3 s releases.
 
 ## Honest limits
