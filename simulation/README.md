@@ -1,6 +1,6 @@
 # Pathfinder simulation environment
 
-A local 3D test bench for Look-and-Pick, built on MuJoCo 3.17 and the upstream SO-101 follower URDF. Printed parts use Pathfinder lime **#D5FD51**; servos remain dark. No hardware adapter, serial port, model endpoint or cloud service is used.
+A local 3D test bench for Pathfinder, built on MuJoCo 3.17 and the upstream SO-101 follower URDF. Printed parts use Pathfinder lime **#D5FD51**; servos remain dark. No hardware adapter, serial port, model endpoint or cloud service is used.
 
 ## Run
 

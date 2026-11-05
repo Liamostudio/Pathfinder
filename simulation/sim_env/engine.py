@@ -1,4 +1,4 @@
-"""Thread-safe simulation implementing Look-and-Pick's Arm and Tracker protocols.
+"""Thread-safe simulation implementing Pathfinder's Arm and Tracker protocols.
 
 Arm joints use velocity-limited kinematic servos; free objects use MuJoCo dynamics.
 All commands complete synchronously, and stop can interrupt them from another thread.

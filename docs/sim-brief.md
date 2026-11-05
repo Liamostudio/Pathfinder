@@ -1,4 +1,4 @@
-# Brief: 3D simulation environment for Pathfinder (Look-and-Pick)
+# Brief: 3D simulation environment for Pathfinder
 
 Read first: `CLAUDE.md` (safety rules are non-negotiable), `PROGRESS.md`, `lookandpick/adapters/base.py`,
 `world.py`, `safety.py`, `tools.py`, `calibration.py`, `intrinsics.py`, `adapters/camera.py`, `record.py`.
