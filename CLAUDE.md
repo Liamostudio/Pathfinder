@@ -1,4 +1,6 @@
-# Look-and-Pick — Meta Global AI Developer Hackathon
+# Pathfinder: Live Safety System for Robotics with Natural Language Commands — Meta Global AI Developer Hackathon
+
+Project name: **Pathfinder: Live Safety System for Robotics with Natural Language Commands** (short name Pathfinder; the Python package is still `lookandpick` and the working name was Look-and-Pick, so code paths keep that name).
 
 Solo entry (indie track, "Push the Frontier") by Liam. A table-mounted SO-101 robot arm that works safely around people: Meta's models see, understand and decide; a simple, checkable safety layer enforces. Models never drive the motors directly.
 

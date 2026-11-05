@@ -1,4 +1,4 @@
-# Pathfinder — three-minute film, 4 November 2026
+# Pathfinder: Live Safety System for Robotics with Natural Language Commands — three-minute film, 4 November 2026
 
 Solo entrant: Liam. British English. Master edit: **3:00 exactly**; slots below total 180 seconds. Read only the quoted narration and live commands. Captions, evidence and production notes are not spoken. Allow model latency and arm motion to play beneath narration; keep cuts visible and label sped-up footage. No synthetic replies presented as live Meta calls.
 

@@ -1,4 +1,4 @@
-# Pathfinder: technical breakdown (models and techniques)
+# Pathfinder: Live Safety System for Robotics with Natural Language Commands: technical breakdown (models and techniques)
 
 Written 4 November 2026, the last day of the hackathon (26 Oct to 4 Nov 2026). Every statement is tied to code in this repository or to an entry in [`PROGRESS.md`](../PROGRESS.md), which is the evidence ledger. Where something was only tested with fakes, or never run, this document says so. Status words used throughout:
 

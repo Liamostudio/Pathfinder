@@ -1,8 +1,8 @@
-# Pathfinder
+# Pathfinder: Live Safety System for Robotics with Natural Language Commands
 
 ## What Pathfinder is
 
-Pathfinder is a safety layer that lets a robot arm work around people. Meta's models see, understand and decide; a small, checkable local layer enforces. Models never drive the motors.
+**Pathfinder** is a live safety system for robotics, driven by natural language commands: a safety layer that lets a robot arm work around people while you tell it what to do in plain speech. Meta's models see, understand and decide; a small, checkable local layer enforces. Models never drive the motors.
 
 Solo entry by Liam for the Meta Global AI Developer Hackathon, indie track, “Push the Frontier”. Evidence below refers to the dated log in [PROGRESS.md](PROGRESS.md); later entries supersede its older milestone summaries.
 
