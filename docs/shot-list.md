@@ -1,5 +1,7 @@
 # Pathfinder — shot list for Liam, 4 November 2026
 
+> **Superseded.** This was the plan written before filming. The submitted video follows a different structure (five sections: Mapping the Workspace, Voxel Spatial Safety System, Natural Language Command, Chained Commands, Realtime Safety Demo) and its last section shows the REAL SO-101 stopping and restarting for a hand, so statements below that the real arm stays unpowered, or that no physical hand-stop is recorded, are out of date. See [submission-video.md](submission-video.md) for what was submitted and what each claim rests on.
+
 Companion to the [word-for-word script](video-script.md). Eight beats: 15 + 25 + 30 + 40 + 20 + 15 + 20 + 15 = **180 seconds**. This is a solo shoot: lock the action cam on the desk, screen-record Deck, record phone separately, then assemble. Use the script's exact narration in voice-over; only the commands below need location sound. Do not attempt three simultaneous camera operations.
 
 ## Before recording (Liam locally)

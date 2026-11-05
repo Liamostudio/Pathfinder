@@ -79,6 +79,15 @@ scripts/test_all.sh
 
 The full script requires `workspace_splat/.venv` ([setup](workspace_splat/README.md)); it runs MuJoCo checks when `simulation/.venv` exists. **JavaScript tests need `node` on PATH.** Missing suites must not be counted as passed. This requires more setup than the minimal demo. Stop the SAM worker before tests/reconstruction if it holds the GPU lease. Current live commands/environment split: [demo guide](docs/demo-2026-11-04.md), [hand safety](docs/hand-safety.md), [iPhone](mobile/PathfinderGlasses/README.md), [launcher](docs/launcher.md). Keys belong in ignored `.env`, never Git.
 
+## The demo film
+
+The submitted video has five sections; [what each shows, which models it names, and which parts use the real arm](docs/submission-video.md):
+
+1. **Mapping the Workspace**: four phone photos, MapAnything (Meta) + SAM 3.1 (Meta) + gsplat reconstruct a 3D scene.
+2. **Voxel Spatial Safety System**: two cameras, MediaPipe hand gate (stops the arm) and SAM 3.1 (paints people and hands into the voxel map, not in the safety path); manual no-go cubes. Simulated arm.
+3. **Natural Language Command** and **3b Chained Commands**: Meta glasses, iPhone, Muse Voice Transcribe, Muse Spark and five constrained tools. Real speech and API calls; simulated arm.
+4. **Realtime Safety Demo**: the live hand gate stopping and restarting the **real SO-101** on a slow single-joint sweep (not a pick, not voice-driven).
+
 ## Where to read more
 
 - [Technical breakdown](docs/technical-breakdown.md): every model and technique used, with the state and evidence of each.
