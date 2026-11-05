@@ -93,6 +93,7 @@ The submitted video has five sections; [what each shows, which models it names, 
 - [Technical breakdown](docs/technical-breakdown.md): every model and technique used, with the state and evidence of each.
 - [PROGRESS.md](PROGRESS.md): the dated evidence ledger of what was built and how it was tested.
 - [Licences and provenance](docs/licences.md), [real-arm hand-stop bench notes](docs/real-arm-hand-stop-bench.md), [demo plan](docs/demo-2026-11-04.md).
+- **Hosted replay (offline, no backend or keys):** [`replay_site/`](replay_site/), how to export and host it in [docs/replay.md](docs/replay.md). It plays one recorded take of the simulated arm with the hand gate, stops and the model-call timeline, under a banner that says it is a recorded simulation. The bundled take uses the scripted model (no Muse calls, no API spend), so it demonstrates the safety behaviour and the interface, not the Meta model calls. (An older, separate static replay is in [`replay/`](replay/README.md).)
 - Optional developer tool: **Splat Studio**, a standalone Gaussian-splatting app (`gaussian_studio/`, see its [README](gaussian_studio/README.md)); it is a supporting tool for workspace scans, not the project.
 
 ## Safety rules
