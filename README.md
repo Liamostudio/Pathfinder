@@ -11,6 +11,7 @@ Solo entry by Liam for the Meta Global AI Developer Hackathon, indie track, “P
 | Feature | State on 4 November 2026 | Evidence in PROGRESS.md / checks |
 | --- | --- | --- |
 | Hand gate | Local CPU MediaPipe Hand Landmarker; two calibrated cameras fused into one gate. Slows/stops the simulated arm; independent 150 ms watchdog and latched stops. Either camera stalling stops the arm. | 4 Nov “second camera running behind the fused hand gate, live”: 80 s deliberate hand test, about 32 fps; `tests/test_hand_gate.py` fusion/stall tests. Physical stopping latency and detection accuracy unmeasured. |
+| Real-arm hand stop (single-joint sweep) | On the real SO-101, with Liam at the bench and the 5V kill switch in reach: the sweep slows and freezes with torque held for a hand and carries on when it leaves; cannot-see freezes without folding; a supply collapse releases torque. **Bench test only, not a pick; the fold-back after the fix is unverified.** | 4 Nov evening “REAL SO-101 hand-stop demo”: real-arm runs at 1.5 then 8 deg/s; 52 fake-bus tests in `tests/test_real_arm_demo.py`. |
 | SAM 3.1 people/hands → voxels | Local segmentation on both cameras, turning cubes red. About 0.6–1.0 s per look: **too slow to be the safety path**. Camera detections never certify a cube as free. | 4 Nov “live camera test…” and “second camera running…”: about 700 occupied cubes with a person present, back to 18 manual cubes after departure; `tests/test_sam_people.py`, `tests/test_voxel_feed.py`. No ground-truth accuracy score. |
 | Manual no-go cubes | User-drawn restrictions are hard rules for simulated moves. Bounded routing tries over/around; blocked targets or no tested route mean refusal and Rest. | 4 Nov “no-go cubes enforced…”, “pure route planner”, “motion tasks 1 to 5”: real-grid checks and 10/10 MuJoCo bridge behaviours (`scripts/sim_motion_check.py`). Fixed obstacles are marked by the user, not detected. |
 | Glasses voice and five constrained tools | Glasses microphone → iPhone app → Muse Voice Transcribe → reviewed transcript → Muse Spark → validated `get_scene`, `pick`, `place`, `stop`, `say`. Liam reports replies played in the glasses. | 4 Nov evening “SPOKEN commands…”: real speech/APIs, simulated pick/place, missed-grip retry and local STOP. Real imported-photo “this one”, noisy-room and disconnect tests unverified. |
@@ -21,7 +22,7 @@ Solo entry by Liam for the Meta Global AI Developer Hackathon, indie track, “P
 
 **The moving arm in the demo is a MuJoCo simulation of the SO-101.** Default object positions come from simulation ground truth. A separate Spark/SAM vision path has been tested on simulator images (3 Nov “language to target”), not accepted on real objects. Simulator servos are kinematic and grasps idealised.
 
-The real SO-101 is built and calibrated. Tip-touch calibration gave about **2 mm height error on held-out touches** (3 Nov touch-calibration entry); this is not general 3D accuracy or a stopping-distance measurement. Powered tests so far are joint-level only. No live Cartesian real-arm move, pick/place or real-arm hand-stop through this pipeline is recorded. The safety layer is validated on the simulator, **not certified**. See the 30 Oct–3 Nov hardware entries and 4 Nov simulator-only motion/glasses entries in [PROGRESS.md](PROGRESS.md).
+The real SO-101 is built and calibrated. Tip-touch calibration gave about **2 mm height error on held-out touches** (3 Nov touch-calibration entry); this is not general 3D accuracy or a stopping-distance measurement. Powered tests so far are joint-level, plus one **real-arm hand-stop test on the evening of 4 Nov**: a slow, small shoulder-pan sweep that slowed and froze (torque held) when a hand approached and carried on once it left, driven by the same live camera hand gate (`scripts/so101_hand_stop_demo.py`, [bench notes](docs/real-arm-hand-stop-bench.md)). It is a single-joint sweep, not a pick: the final fold-back faulted on the bench and the fix has not been re-run on the arm, the 10 cm stop distance is a chosen margin rather than a measured one, and the real-arm hand check reads the Deck's gate over loopback HTTP (failing closed) rather than running in-process. No live Cartesian real-arm move or pick/place through the full pipeline is recorded. The safety layer is validated on the simulator, **not certified**. See the 30 Oct–3 Nov hardware entries and 4 Nov simulator-only motion/glasses entries in [PROGRESS.md](PROGRESS.md).
 
 The cameras, live hand/person observations and evening glasses speech/API calls are real. Fixed obstacles are marked by the user. The iPhone companion is foreground tap-to-speak with transcript review; no wake word or glasses camera streaming is claimed. Any hosted recording must be labelled **replay** ([guide](replay/README.md)).
 
@@ -78,6 +79,13 @@ scripts/test_all.sh
 
 The full script requires `workspace_splat/.venv` ([setup](workspace_splat/README.md)); it runs MuJoCo checks when `simulation/.venv` exists. **JavaScript tests need `node` on PATH.** Missing suites must not be counted as passed. This requires more setup than the minimal demo. Stop the SAM worker before tests/reconstruction if it holds the GPU lease. Current live commands/environment split: [demo guide](docs/demo-2026-11-04.md), [hand safety](docs/hand-safety.md), [iPhone](mobile/PathfinderGlasses/README.md), [launcher](docs/launcher.md). Keys belong in ignored `.env`, never Git.
 
+## Where to read more
+
+- [Technical breakdown](docs/technical-breakdown.md): every model and technique used, with the state and evidence of each.
+- [PROGRESS.md](PROGRESS.md): the dated evidence ledger of what was built and how it was tested.
+- [Licences and provenance](docs/licences.md), [real-arm hand-stop bench notes](docs/real-arm-hand-stop-bench.md), [demo plan](docs/demo-2026-11-04.md).
+- Optional developer tool: **Splat Studio**, a standalone Gaussian-splatting app (`gaussian_studio/`, see its [README](gaussian_studio/README.md)); it is a supporting tool for workspace scans, not the project.
+
 ## Safety rules
 
 From [CLAUDE.md](CLAUDE.md):
@@ -89,7 +97,7 @@ From [CLAUDE.md](CLAUDE.md):
 
 ## Known limits and honest gaps
 
-- No live Cartesian real-arm pipeline acceptance or certified safety claim. Physical full-arm geometry, stopping distances and camera-to-servo latency remain unverified.
+- No live Cartesian real-arm pipeline acceptance or certified safety claim. Physical full-arm geometry, stopping distances and camera-to-servo latency remain unverified, including for the real-arm hand-stop sweep.
 - SAM/MediaPipe disagreements have been observed but not resolved against ground truth. Cameras cannot certify empty 3D space; voxel freshness is not the watchdog. Only manual cubes are hard map rules in these simulated moves; unknown display cubes do not themselves gate them (4 Nov “no-go cubes enforced…”).
 - The planner checks the tip path, not full-arm clearance. A route around a hand helps only when the hand is clear of the whole arm; otherwise simulator link checks hold it until the hand leaves. Waiting then carrying on is the dependable shot (4 Nov motion tasks).
 - Marker black square confirmed 120 mm; checkerboard readings about 3% over nominal (15.4 × 15.7 mm versus 15 mm in the evening re-scan). Board print/scale offsets and off-marker accuracy remain caveats. Run-view marker-plane texture and visual foot/pan offsets are visual alignment fixes, not physical revalidation.
